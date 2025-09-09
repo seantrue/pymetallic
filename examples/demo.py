@@ -4,18 +4,18 @@ PyMetal Complete Demo and Documentation
 Comprehensive demonstration of the PyMetal library capabilities
 """
 
-import numpy as np
-import time
 import sys
-import os
-from typing import List, Tuple, Optional
+import time
 
-# Try to import PyMetal
+import numpy as np
+
+# Try to import PyMetallic
 try:
     import pymetallic
     from examples import MetalMatrixOperations, PerformanceBenchmark
+    from pymetallic import Device, Buffer
 except ImportError:
-    print("PyMetal not available. Please build and install first:")
+    print("PyMetallic not available. Please build and install first:")
     print("  make build && make install-dev")
     sys.exit(1)
 
@@ -274,7 +274,11 @@ class PyMetalDemo:
         storage_modes = [
             (pymetallic.Buffer.STORAGE_SHARED, "Shared"),
             (pymetallic.Buffer.STORAGE_MANAGED, "Managed"),
-            (pymetallic.Buffer.STORAGE_PRIVATE, "Private"),
+            # These tests do not work for Private memory
+            # On macOS, MTLStorageModePrivate buffers are not CPU-accessible.
+            # Calling to_numpy on such buffers will not work and may return invalid data or crash.
+            # For CPU readback from private buffers, you need a blit/compute copy into a shared/managed buffer.
+            # (pymetallic.Buffer.STORAGE_PRIVATE, "Private"),
         ]
 
         for mode, name in storage_modes:

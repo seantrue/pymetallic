@@ -4,9 +4,10 @@ PyMetal Advanced Examples
 Demonstrates various Metal compute operations with PyOpenCL-style API
 """
 
-import numpy as np
 import time
-from typing import Tuple
+
+import numpy as np
+
 import pymetallic
 
 
@@ -122,6 +123,32 @@ class MetalMatrixOperations:
             
             outputTexture.write(color, gid);
         }
+
+        // Buffer-based 5x5 Gaussian blur (separable weights, clamp-to-edge)
+        kernel void gaussian_blur_5x5_buffer(device const float* input [[buffer(0)]],
+                                            device float* output [[buffer(1)]],
+                                            constant uint& width [[buffer(2)]],
+                                            constant uint& height [[buffer(3)]],
+                                            uint2 gid [[thread_position_in_grid]]) {
+            if (gid.x >= width || gid.y >= height) { return; }
+
+            const float k[5] = {1.0, 4.0, 6.0, 4.0, 1.0};
+            float sum = 0.0;
+            float norm = 0.0;
+
+            for (int dy = -2; dy <= 2; ++dy) {
+                int y = clamp(int(gid.y) + dy, 0, int(height) - 1);
+                float wy = k[dy + 2];
+                for (int dx = -2; dx <= 2; ++dx) {
+                    int x = clamp(int(gid.x) + dx, 0, int(width) - 1);
+                    float w = wy * k[dx + 2];
+                    sum += input[y * width + x] * w;
+                    norm += w;
+                }
+            }
+
+            output[gid.y * width + gid.x] = sum / norm;
+        }
         """
 
         self.library = pymetallic.Library(self.device, shader_source)
@@ -141,6 +168,9 @@ class MetalMatrixOperations:
         )
         self.reduce_sum_pipeline = pymetallic.ComputePipelineState(
             self.device, self.library.make_function("reduce_sum")
+        )
+        self.gaussian_blur_5x5_pipeline = pymetallic.ComputePipelineState(
+            self.device, self.library.make_function("gaussian_blur_5x5_buffer")
         )
 
     def matrix_multiply(self, A: np.ndarray, B: np.ndarray) -> np.ndarray:
@@ -260,6 +290,39 @@ class MetalMatrixOperations:
 
         result = buffer_output.to_numpy(np.float32, input_vector.shape)
         return result
+
+    def gaussian_blur_5x5(self, image: np.ndarray) -> np.ndarray:
+        """Apply a 5x5 Gaussian blur to a 2D float32 image using a compute kernel."""
+        if image.ndim != 2:
+            raise ValueError("Input image must be a 2D array (grayscale).")
+        img = image.astype(np.float32, copy=False)
+        h, w = img.shape
+
+        buffer_in = pymetallic.Buffer.from_numpy(self.device, img)
+        buffer_out = pymetallic.Buffer(self.device, w * h * 4)
+        buf_w = pymetallic.Buffer.from_numpy(
+            self.device, np.array([w], dtype=np.uint32)
+        )
+        buf_h = pymetallic.Buffer.from_numpy(
+            self.device, np.array([h], dtype=np.uint32)
+        )
+
+        command_buffer = self.queue.make_command_buffer()
+        encoder = command_buffer.make_compute_command_encoder()
+
+        encoder.set_compute_pipeline_state(self.gaussian_blur_5x5_pipeline)
+        encoder.set_buffer(buffer_in, 0, 0)
+        encoder.set_buffer(buffer_out, 0, 1)
+        encoder.set_buffer(buf_w, 0, 2)
+        encoder.set_buffer(buf_h, 0, 3)
+
+        encoder.dispatch_threads((w, h, 1), (16, 16, 1))
+        encoder.end_encoding()
+
+        command_buffer.commit()
+        command_buffer.wait_until_completed()
+
+        return buffer_out.to_numpy(np.float32, (h, w))
 
 
 class PerformanceBenchmark:
@@ -400,8 +463,50 @@ def run_comprehensive_example():
         print("\n3. Performance Benchmark")
         print("-" * 30)
         benchmark = PerformanceBenchmark()
-        benchmark.benchmark_matrix_multiply([64, 128, 256, 512])
-        benchmark.benchmark_vector_operations(1000000)
+        benchmark.benchmark_matrix_multiply([64, 128, 256, 512, 1024, 2048])
+        benchmark.benchmark_vector_operations(4000000)
+
+        print("\n4. 5x5 Gaussian Blur Example")
+        print("-" * 30)
+        # Create a sample grayscale image
+        height, width = 128, 128
+        image = np.random.random((height, width)).astype(np.float32)
+
+        # Metal blur
+        t = time.time()
+        blurred_metal = metal_ops.gaussian_blur_5x5(image)
+        mtl_elapsed = time.time() - t
+
+        # CPU reference (separable 5x5 with clamp-to-edge)
+        k1 = np.array([1, 4, 6, 4, 1], dtype=np.float32)
+        k1 /= k1.sum()
+        t = time.time()
+        tmp = np.empty_like(image)
+        for y in range(height):
+            for x in range(width):
+                s = 0.0
+                for dx in range(-2, 3):
+                    xx = min(max(0, x + dx), width - 1)
+                    s += image[y, xx] * k1[dx + 2]
+                tmp[y, x] = s
+
+        blurred_cpu = np.empty_like(image)
+        for y in range(height):
+            for x in range(width):
+                s = 0.0
+                for dy in range(-2, 3):
+                    yy = min(max(0, y + dy), height - 1)
+                    s += tmp[yy, x] * k1[dy + 2]
+                blurred_cpu[y, x] = s
+        np_elapsed = time.time() - t
+        speedup = np_elapsed / mtl_elapsed
+
+        print(
+            f"Gaussian blur correctness: {np.allclose(blurred_metal, blurred_cpu, rtol=1e-5)}"
+        )
+        print(
+            f"Performance speedup: {speedup:.2f}x numpy={np_elapsed*1000:.2f}ms metal={mtl_elapsed*1000:.2f}ms"
+        )
 
         print("\nAll examples completed successfully!")
 

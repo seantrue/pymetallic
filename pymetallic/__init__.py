@@ -5,10 +5,10 @@ Architecture inspired by PyOpenCL for familiar API design
 """
 
 import ctypes
-from ctypes import POINTER, c_void_p, c_char_p, c_int, c_uint64, c_float, c_bool
 import os
-import sys
-from typing import Optional, List, Tuple, Union
+from ctypes import POINTER, c_void_p, c_char_p, c_int, c_uint64, c_bool
+from typing import Optional, List, Tuple
+
 import numpy as np
 
 
@@ -16,7 +16,7 @@ import numpy as np
 def _load_metal_library():
     """Load the Swift-compiled Metal bridge library"""
     library_paths = [
-        os.path.join(os.path.dirname(__file__),"libpymetallic.dylib"),
+        os.path.join(os.path.dirname(__file__), "libpymetallic.dylib"),
     ]
 
     for path in library_paths:
@@ -206,13 +206,34 @@ class Buffer:
     STORAGE_MANAGED = 1
     STORAGE_PRIVATE = 2
 
+    @staticmethod
+    def _storage_mode_to_resource_options(storage_mode: int) -> int:
+        """
+        Convert public storage_mode to Metal MTLResourceOptions.
+        - CPU cache mode: default (0)
+        - Storage mode: shifted by 4 (MTLResourceStorageModeShift)
+        """
+        STORAGE_SHIFT = 4  # MTLResourceStorageModeShift
+        if storage_mode == Buffer.STORAGE_SHARED:
+            # Shared + default cache -> 0
+            return 0
+        if storage_mode == Buffer.STORAGE_MANAGED:
+            return 1 << STORAGE_SHIFT
+        if storage_mode == Buffer.STORAGE_PRIVATE:
+            return 2 << STORAGE_SHIFT
+        raise ValueError(
+            f"Invalid storage_mode {storage_mode}. "
+            f"Use Buffer.STORAGE_SHARED, STORAGE_MANAGED, or STORAGE_PRIVATE."
+        )
+
     def __init__(self, device: Device, size: int, storage_mode: int = STORAGE_SHARED):
         self.device = device
         self.size = size
         lib = _get_metal_lib()
+        resource_options = self._storage_mode_to_resource_options(storage_mode)
         self._buffer_ptr = c_void_p(
             lib.metal_device_make_buffer(
-                device._device_ptr, c_uint64(size), c_int(storage_mode)
+                device._device_ptr, c_uint64(size), c_int(resource_options)
             )
         )
         if not self._buffer_ptr:
@@ -224,11 +245,12 @@ class Buffer:
     ) -> "Buffer":
         """Create buffer from numpy array"""
         lib = _get_metal_lib()
+        resource_options = cls._storage_mode_to_resource_options(storage_mode)
         buffer_ptr = lib.metal_device_make_buffer_with_bytes(
             device._device_ptr,
             array.ctypes.data_as(c_void_p),
             c_uint64(array.nbytes),
-            c_int(storage_mode),
+            c_int(resource_options),
         )
         if not buffer_ptr:
             raise MetalError("Failed to create buffer from numpy array")
