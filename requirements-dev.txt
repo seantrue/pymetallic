@@ -7,6 +7,7 @@
 pytest>=6.0
 pytest-cov>=3.0
 pytest-benchmark>=3.4
+pillow
 
 # Code formatting and linting
 black>=22.0
