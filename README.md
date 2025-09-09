@@ -1,6 +1,8 @@
-# PyMetal
+# PyMetallic
 
-Python bindings for Apple Metal using swift-cffi, providing a PyOpenCL-like API for Metal compute shaders.
+Python bindings for Apple Metal using swift-cffi, providing a PyOpenCL-like API for Metal compute shaders. 
+
+This code created in a day of sessions with ChatGPT, Claude, and JetBrains AI assistant. Any bugs or infelicities are the responsibility of the authors.
 
 ## Features
 
@@ -12,7 +14,7 @@ Python bindings for Apple Metal using swift-cffi, providing a PyOpenCL-like API 
 ## Requirements
 
 - macOS 10.13+ with Metal support
-- Python 3.7+
+- Python 3.10+
 - Swift 5.0+ (Xcode or Swift toolchain)
 - NumPy
 
@@ -21,11 +23,11 @@ Python bindings for Apple Metal using swift-cffi, providing a PyOpenCL-like API 
 1. Clone the repository
 2. Run the build script:
    ```
-   python build.py
+   make build
    ```
 3. Install the Python package:
    ```
-   pip install -e .
+   make install
    ```
 
 ## Quick Example
