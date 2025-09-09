@@ -1,0 +1,24 @@
+# requirements-dev.txt
+# Development dependencies
+
+-r requirements.txt
+
+# Testing
+pytest>=6.0
+pytest-cov>=3.0
+pytest-benchmark>=3.4
+
+# Code formatting and linting
+black>=22.0
+isort>=5.0
+mypy>=0.950
+flake8>=4.0
+
+# Documentation
+sphinx>=4.0
+sphinx-rtd-theme>=1.0
+myst-parser>=0.18
+
+# Build tools
+build>=0.8
+twine>=4.0

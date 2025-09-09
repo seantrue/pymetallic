@@ -1,0 +1,12 @@
+# requirements.txt
+# Python dependencies
+
+numpy==2.1
+
+# Development dependencies
+pytest>=6.0
+black>=22.0
+mypy>=0.950
+isort>=5.0
+wheel>=0.37
+
