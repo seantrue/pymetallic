@@ -28,6 +28,12 @@ format:
 	$(PYTHON) -m black $(PACKAGE_PREFIX)/*.py $(SRC_PATH)/examples/*.py  $(SRC_PATH)/tests/*.py --line-length 88
 	@echo "Formatting complete!"
 
+# Make sure required packages are license compatible
+licensecheck:
+	@echo "Checking packages for compatibility..."
+	licensecheck
+	@echo "License check complete"
+
 # Type checking
 typecheck:
 	@echo "Running type checks..."
@@ -42,11 +48,10 @@ clean:
 	rm -rf *.egg-info/
 	rm -rf __pycache__/
 	rm -rf .pytest_cache/
-	find src -name "*.dylib" -delete -print
-	find src -name "*.gif" -delete -print
-	find tests -name "*.gif" -delete -print
 	find . -name "*.pyc" -delete -print
 	find . -name "*.pyo" -delete -print
+	find src -name "*.dylib" -delete -print
+	find src -name "*.gif" -delete -print
 	@echo "Clean complete!"
 
 $(LIB_PATH): $(SRC_PATH)/$(SWIFT_FILE)
@@ -75,14 +80,14 @@ install: dist
 # Install for development (current user only)
 install-dev: uninstall
 	@echo "Installing for development..."
-	$(PYTHON) -m pip install -e .
+	$(PYTHON) -m pip install -e .[dev,docs,test]
 	@echo "Development installation complete!"
 
 # Run smoke test
 smoke: $(LIB_PATH)
 	@echo "Running smoke tests..."
 	$(PYTHON) -c "import pymetallic; pymetallic.run_simple_compute_example()"
-	$(PYTHON) src/scripts/smoke.py
+	$(PYTHON) src/pymetallic/scripts/smoke.py
 	@echo "Smoke tests passed!"
 
 # Run test suite
@@ -98,9 +103,9 @@ benchmark: $(LIB_PATH)
 	$(PYTHON) -c "from pymetallic.helpers import PerformanceBenchmark; b = PerformanceBenchmark(); b.benchmark_matrix_multiply([128, 256, 512]); b.benchmark_vector_operations()"
 
 # Run comprehensive examples
-examples: $(LIB_PATH)
-	@echo "Running comprehensive examples..."
-	$(PYTHON) examples/examples.py
+demos: $(LIB_PATH)
+	@echo "Running all demos..."
+	$(PYTHON) $(SRC_PATH)/scripts/demos.py --demos all
 
 uninstall:
 	@echo "Uninstalling Python package..."
@@ -117,12 +122,13 @@ help:
 	@echo "  check        - Check prerequisites"
 	@echo "  format       - Format Python code with black"
 	@echo "  typecheck    - Run type checking with mypy"
+	@echo "  licensecheck - Check required package licenses"
+	@echo "  clean        - Remove build artifacts"
 	@echo "  build        - Build the Swift bridge library"
 	@echo "  dist         - Create distribution package"
 	@echo "  uninstall    - Uninstall package from site_packages"
 	@echo "  install      - Install Python package from wheel to site_packages"
 	@echo "  install-dev  - Install for development (user-only)"
-	@echo "  clean        - Remove build artifacts"
 	@echo "  smoke        - Run basic functional test"
 	@echo "  test         - Run all tests"
 	@echo "  examples     - Run comprehensive examples"

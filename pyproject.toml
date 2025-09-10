@@ -35,6 +35,8 @@ dev = [
     "black>=22.0",
     "mypy>=0.950",
     "isort>=5.0",
+    "pillow>=11.3.0",
+    "licensecheck>=2025.1.0",
 ]
 test = [
     "pytest>=6.0",
@@ -86,7 +88,10 @@ exclude = ["*.gif"]
 include = [
     "pymetallic"
 ]
+
 [tool.isort]
 profile = "black"
 multi_line_output = 3
 
+[tool.cibuildwheel]
+before-all = "uname -a"
