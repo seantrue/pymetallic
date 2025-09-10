@@ -11,6 +11,14 @@ This code created in a day of sessions with ChatGPT, Claude, and JetBrains AI as
 - NumPy integration for easy data transfer
 - Support for all Metal-capable devices
 
+## Examples
+
+### Fluid dynamics
+![Fluid dynamics](demo_output/fluid_dynamics.gif)
+
+### Cellular automata
+![Conway's Life](demo_output/cellular_automata.gif)
+
 ## Requirements
 
 - macOS 10.13+ with Metal support
@@ -95,6 +103,7 @@ print("Computation complete!")
 - `Device.get_default_device()` - Get the default Metal device
 - `Device.get_all_devices()` - Get all available Metal devices
 - `device.name` - Device name property
+- `compute_pipeline_state(function)` - Convenience wrapper for `ComputePipelineState(device, function)`
 
 ### Memory Management
 - `Buffer(device, size)` - Create a Metal buffer

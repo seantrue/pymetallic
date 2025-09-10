@@ -3,13 +3,13 @@
 
 [project]
 name = "pymetallic"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python bindings for Apple Metal using swift-cffi"
 readme = "README.md"
 authors = [
-    {name = "Sean D. True"}
+    { name = "Sean D. True" }
 ]
-license = {text = "MIT"}
+license = { text = "MIT" }
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -46,13 +46,14 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pymetal/pymetal"
-Documentation = "https://pymetal.readthedocs.io/"
-Repository = "https://github.com/pymetal/pymetal.git"
-"Bug Tracker" = "https://github.com/pymetal/pymetal/issues"
+Homepage = "https://github.com/seantrue/pymetallic"
+Documentation = "https://pymetallic.readthedocs.io/"
+Repository = "https://github.com/seantrue/pymetallic.git"
+"Bug Tracker" = "https://github.com/seantrue/pymetallic/issues"
 
 [project.scripts]
-pymetal-info = "pymetal:print_device_info"
+metallic-demo = "pymetallic.scripts.demo:main"
+metallic-smoke = "pymetallic.scripts.smoke:main"
 
 [tool.black]
 line-length = 88
@@ -70,18 +71,20 @@ exclude = '''
   | dist
 )/
 '''
+#[build-system]
+#requires = ["hatchling>=1.13"]
+#build-backend = "hatchling.build"
 [build-system]
-requires = ["hatchling>=1.13"]
-build-backend = "hatchling.build"
-
-
+requires = ["uv_build>=0.8.15,<0.9.0"]
+build-backend = "uv_build"
 
 [tool.hatch.build.targets.wheel]
 # Include both a single-module layout (pymetallic.py) and a package layout (pymetallic/)
 # so either structure is packaged correctly without setuptools.
+artifacts = ["*.dylib"]
+exclude = ["*.gif"]
 include = [
-  "pymetallic/*.py",
-  "pymetallic/*.dylib",
+    "pymetallic"
 ]
 [tool.isort]
 profile = "black"
