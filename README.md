@@ -15,11 +15,31 @@ This code created in a day of sessions with ChatGPT, Claude, and JetBrains AI as
 
 ### Fluid dynamics
 
+ChatGPT 5 described this demo as:
+
+```
+HERO: 2D Stable Fluids / CFD Demo
+---------------------------------
+Simulates a simple 2D incompressible fluid using semi-Lagrangian advection and a Jacobi pressure solve.
+```
+
 ![Fluid dynamics](demo_output/fluid_dynamics.gif)
 
-### Cellular automata
+⏱ Elapsed 0.644 sec for 100 steps, average = 0.006
 
-![Conway's Life](demo_output/cellular_automata.gif)
+
+### Cellular automata
+ChatGPT 5 described this demo as:
+
+```
+HERO: Cellular Automata (Conway's Game of Life)
+------------------------------------------------
+Runs a GPU-accelerated Conway's Game of Life simulation on a 2D grid.
+```
+
+![Conway - Life](demo_output/cellular.gif)
+
+⏱ Elapsed 0.076 sec for 200 steps, average = 0.000
 
 ## Requirements
 

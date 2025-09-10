@@ -4,7 +4,7 @@
 .PHONY: all build clean install test benchmark help
 
 # Default target
-all: check format typecheck build
+all: check format typecheck install-dev test-cov
 
 # Variables
 SWIFT_FILE = SwiftMetalBridge.swift
@@ -25,7 +25,7 @@ check:
 # Format Python code
 format:
 	@echo "Formatting Python code..."
-	$(PYTHON) -m black $(PACKAGE_PREFIX)/*.py $(SRC_PATH)/examples/*.py  $(SRC_PATH)/tests/*.py --line-length 88
+	$(PYTHON) -m black $(PACKAGE_PREFIX)/*.py $(PACKAGE_PREFIX)/scripts/*.py  $(SRC_PATH)/tests/*.py --line-length 88
 	@echo "Formatting complete!"
 
 # Make sure required packages are license compatible
@@ -37,7 +37,7 @@ licensecheck:
 # Type checking
 typecheck:
 	@echo "Running type checks..."
-	$(PYTHON) -m mypy src/pymetallic examples --ignore-missing-imports
+	$(PYTHON) -m mypy src/pymetallic src/tests --ignore-missing-imports
 	@echo "Type checking complete!"
 
 # Clean build artifacts
@@ -96,6 +96,13 @@ test: $(LIB_PATH)
 	py.test $(SRC_PATH)/tests
 	@echo "Tests complete!"
 
+# Run test suite with coverage
+test-cov: $(LIB_PATH)
+	@echo "Running tests..."
+	py.test --cov --cov-report html:coverage src
+	open coverage/index.html
+	@echo "Tests complete!"
+
 
 # Run performance benchmarks
 benchmark: $(LIB_PATH)
@@ -131,6 +138,7 @@ help:
 	@echo "  install-dev  - Install for development (user-only)"
 	@echo "  smoke        - Run basic functional test"
 	@echo "  test         - Run all tests"
+	@echo "  test-cov     - Run all tests with coverage"
 	@echo "  examples     - Run comprehensive examples"
 	@echo "  benchmark    - Run performance benchmarks"
 	@echo "  help         - Show this help message"

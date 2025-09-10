@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 from pymetallic import Device, run_simple_compute_example
-from pymetallic.helpers import MetallicDemo, print_installation_guide
+from pymetallic.helpers import MetallicDemo
 
 
 def _available_demo_names():
@@ -34,9 +34,6 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--install_guide", action="store_true", help="Print installation guide and exit"
-    )
-    parser.add_argument(
         "--quick_test", action="store_true", help="Run a quick device test and exit"
     )
     parser.add_argument(
@@ -55,10 +52,6 @@ def main():
     )
 
     args = parser.parse_args()
-
-    if args.install_guide:
-        print_installation_guide()
-        return
 
     if args.quick_test:
         print("🔬 PyMetallic Quick Test")
