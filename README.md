@@ -14,9 +14,11 @@ This code created in a day of sessions with ChatGPT, Claude, and JetBrains AI as
 ## Examples
 
 ### Fluid dynamics
+
 ![Fluid dynamics](demo_output/fluid_dynamics.gif)
 
 ### Cellular automata
+
 ![Conway's Life](demo_output/cellular_automata.gif)
 
 ## Requirements
