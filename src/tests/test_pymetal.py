@@ -54,10 +54,11 @@ import pytest
 # Import PyMetallic - handle missing dependency gracefully
 try:
     import pymetallic
+    import pymetallic as pm
+    from pymetallic.metallic import fill_u32, read_scalar
 except ImportError:
     pytest.skip("PyMetallic not available", allow_module_level=True)
-from pymetallic import MetalError
-
+from pymetallic import MetalError, Kernel
 
 # Test Configuration
 TEST_CONFIG = {
@@ -70,8 +71,21 @@ TEST_CONFIG = {
 }
 
 
+def _have_device():
+    try:
+        dev = pm.Device.get_default_device()
+        return dev is not None
+    except Exception:
+        return False
+
+
+requires_metal = pytest.mark.skipif(
+    not _have_device(), reason="No Metal device available"
+)
+
+
 @pytest.fixture(scope="session")
-def metal_device():
+def device():
     """Session-scoped fixture to provide Metal device for all tests."""
     try:
         device = pymetallic.Device.get_default_device()
@@ -83,9 +97,8 @@ def metal_device():
 
 
 @pytest.fixture(scope="session")
-def command_queue(metal_device):
-    """Session-scoped fixture to provide command queue."""
-    return pymetallic.CommandQueue(metal_device)
+def command_queue(device):
+    return device.command_queue
 
 
 @pytest.fixture
@@ -104,6 +117,7 @@ def sample_data():
     }
 
 
+@requires_metal
 class TestPyMetalCore:
     """Core functionality tests for PyMetallic."""
 
@@ -127,21 +141,18 @@ class TestPyMetalCore:
                 device, "supports_shader_barycentric_coordinates"
             ), "Device should have barycentric coordinates support property"
 
-    def test_command_queue_creation(self, metal_device):
+    def test_command_queue_creation(self, device):
         """Test command queue creation and basic operations."""
-        queue = pymetallic.CommandQueue(metal_device)
-        assert queue is not None, "Command queue should be created"
+        assert device.command_queue is not None, "CommandQueue should be created"
+        assert device.command_buffer is not None, "CommandBuffer should be created"
+        assert device.command_encoder is not None, "CommandEncoder should be created"
 
-        # Test command buffer creation
-        command_buffer = queue.make_command_buffer()
-        assert command_buffer is not None, "Command buffer should be created"
-
-    def test_buffer_creation_and_access(self, metal_device, sample_data):
+    def test_buffer_creation_and_access(self, device, sample_data):
         """Test buffer creation, data transfer, and access."""
         test_array = sample_data["float32_array"]
 
         # Test buffer creation from numpy array
-        buffer = pymetallic.Buffer.from_numpy(metal_device, test_array)
+        buffer = device.make_buffer_from_numpy(test_array)
         assert buffer is not None, "Buffer should be created from numpy array"
 
         # Test data retrieval
@@ -154,29 +165,29 @@ class TestPyMetalCore:
         expected_size = test_array.nbytes
         assert buffer.size == expected_size, f"Buffer size should be {expected_size}"
 
-    def test_buffer_memory_modes(self, metal_device, sample_data):
+    def test_buffer_memory_modes(self, device, sample_data):
         """Test different buffer memory storage modes."""
         test_array = sample_data["float32_array"]
 
         # Test shared memory (default and most compatible)
-        buffer_shared = pymetallic.Buffer.from_numpy(
-            metal_device, test_array, pymetallic.Buffer.STORAGE_SHARED
+        buffer_shared = device.make_buffer_from_numpy(
+            test_array, pymetallic.Buffer.STORAGE_SHARED
         )
         retrieved_shared = buffer_shared.to_numpy(np.float32, test_array.shape)
         np.testing.assert_array_equal(test_array, retrieved_shared)
 
         # Test managed memory (if supported)
         try:
-            buffer_managed = pymetallic.Buffer.from_numpy(
-                metal_device, test_array, pymetallic.Buffer.STORAGE_MANAGED
+            buffer_managed = device.make_buffer_from_numpy(
+                test_array, pm.Buffer.STORAGE_MANAGED
             )
             retrieved_managed = buffer_managed.to_numpy(np.float32, test_array.shape)
             np.testing.assert_array_equal(test_array, retrieved_managed)
-        except pymetallic.MetalError:
+        except pm.MetalError:
             # Managed memory might not be supported on all devices
             pass
 
-    def test_library_and_function_creation(self, metal_device):
+    def test_library_and_function_creation(self, device):
         """Test Metal library compilation and function creation."""
         shader_source = """
         #include <metal_stdlib>
@@ -189,7 +200,7 @@ class TestPyMetalCore:
         """
 
         # Test library compilation
-        library = pymetallic.Library(metal_device, shader_source)
+        library = device.make_library(shader_source)
         assert library is not None, "Library should be compiled successfully"
 
         # Test function creation
@@ -197,22 +208,23 @@ class TestPyMetalCore:
         assert function is not None, "Function should be created from library"
 
         # Test compute pipeline creation
-        pipeline_state = metal_device.make_compute_pipeline_state(function)
+        pipeline_state = device.make_compute_pipeline_state(function)
         assert pipeline_state is not None, "Compute pipeline should be created"
 
 
+@requires_metal
 class TestPyMetalComputeOperations:
     """Test compute operations and shader execution."""
 
-    def test_basic_vector_operation(self, metal_device, command_queue, sample_data):
+    def test_basic_vector_operation(self, device, sample_data):
         """Test basic vector arithmetic operations."""
         a = sample_data["float32_array"]
         b = np.random.random(len(a)).astype(np.float32)
 
         # Create buffers
-        buffer_a = pymetallic.Buffer.from_numpy(metal_device, a)
-        buffer_b = pymetallic.Buffer.from_numpy(metal_device, b)
-        buffer_result = pymetallic.Buffer(metal_device, len(a) * 4)
+        buffer_a = device.make_buffer_from_numpy(a)
+        buffer_b = device.make_buffer_from_numpy(b)
+        buffer_result = device.make_buffer(len(a) * 4)
 
         # Shader for vector addition
         shader_source = """
@@ -228,12 +240,11 @@ class TestPyMetalComputeOperations:
         """
 
         # Compile and execute
-        library = pymetallic.Library(metal_device, shader_source)
+        library = device.make_library(shader_source)
         function = library.make_function("vector_add")
-        pipeline_state = metal_device.make_compute_pipeline_state(function)
+        pipeline_state = device.make_compute_pipeline_state(function)
 
-        command_buffer = command_queue.make_command_buffer()
-        encoder = command_buffer.make_compute_command_encoder()
+        encoder = device.command_encoder
 
         encoder.set_compute_pipeline_state(pipeline_state)
         encoder.set_buffer(buffer_a, 0, 0)
@@ -241,24 +252,23 @@ class TestPyMetalComputeOperations:
         encoder.set_buffer(buffer_result, 0, 2)
         encoder.dispatch_threads((len(a), 1, 1), (64, 1, 1))
         encoder.end_encoding()
-
-        command_buffer.commit()
-        command_buffer.wait_until_completed()
+        encoder.commit()
+        encoder.wait_until_completed()
 
         # Verify results
         result = buffer_result.to_numpy(np.float32, (len(a),))
         expected = a + b
         np.testing.assert_allclose(result, expected, rtol=TEST_CONFIG["tolerance"])
 
-    def test_matrix_operations(self, metal_device, command_queue, sample_data):
+    def test_matrix_operations(self, device, sample_data):
         """Test matrix multiplication and operations."""
         A = sample_data["matrix_a"]  # 64x32
         B = sample_data["matrix_b"]  # 32x48
 
         # Create buffers
-        buffer_a = pymetallic.Buffer.from_numpy(metal_device, A.flatten())
-        buffer_b = pymetallic.Buffer.from_numpy(metal_device, B.flatten())
-        buffer_result = pymetallic.Buffer(metal_device, A.shape[0] * B.shape[1] * 4)
+        buffer_a = device.make_buffer_from_numpy(A.flatten())
+        buffer_b = device.make_buffer_from_numpy(B.flatten())
+        buffer_result = device.make_buffer(A.shape[0] * B.shape[1] * 4)
 
         # Simple matrix multiplication shader
         shader_source = f"""
@@ -287,12 +297,11 @@ class TestPyMetalComputeOperations:
         }}
         """
 
-        library = pymetallic.Library(metal_device, shader_source)
+        library = device.make_library(shader_source)
         function = library.make_function("matrix_multiply")
-        pipeline_state = metal_device.make_compute_pipeline_state(function)
+        pipeline_state = device.make_compute_pipeline_state(function)
 
-        command_buffer = command_queue.make_command_buffer()
-        encoder = command_buffer.make_compute_command_encoder()
+        encoder = device.command_encoder
 
         encoder.set_compute_pipeline_state(pipeline_state)
         encoder.set_buffer(buffer_a, 0, 0)
@@ -301,8 +310,8 @@ class TestPyMetalComputeOperations:
         encoder.dispatch_threads((B.shape[1], A.shape[0], 1), (16, 16, 1))
         encoder.end_encoding()
 
-        command_buffer.commit()
-        command_buffer.wait_until_completed()
+        encoder.commit()
+        encoder.wait_until_completed()
 
         # Verify results
         result = buffer_result.to_numpy(np.float32, (A.shape[0], B.shape[1]))
@@ -311,7 +320,7 @@ class TestPyMetalComputeOperations:
             result, expected, rtol=1e-3
         )  # Slightly relaxed tolerance for matrix ops
 
-    def test_parallel_reductions(self, metal_device, command_queue, sample_data):
+    def test_parallel_reductions(self, device, command_queue, sample_data):
         """Test parallel reduction operations like sum, max, min."""
         data = sample_data["float32_array"]
 
@@ -354,15 +363,14 @@ class TestPyMetalComputeOperations:
         local_size = 256
         grid_size = (len(data) + local_size - 1) // local_size
 
-        buffer_input = pymetallic.Buffer.from_numpy(metal_device, data)
-        buffer_output = pymetallic.Buffer(metal_device, grid_size * 4)
+        buffer_input = device.make_buffer_from_numpy(data)
+        buffer_output = device.make_buffer(grid_size * 4)
 
-        library = pymetallic.Library(metal_device, shader_source)
+        library = device.make_library(shader_source)
         function = library.make_function("parallel_sum")
-        pipeline_state = metal_device.make_compute_pipeline_state(function)
+        pipeline_state = device.make_compute_pipeline_state(function)
 
-        command_buffer = command_queue.make_command_buffer()
-        encoder = command_buffer.make_compute_command_encoder()
+        encoder = device.command_encoder
 
         encoder.set_compute_pipeline_state(pipeline_state)
         encoder.set_buffer(buffer_input, 0, 0)
@@ -371,8 +379,8 @@ class TestPyMetalComputeOperations:
         encoder.dispatch_threadgroups((grid_size, 1, 1), (local_size, 1, 1))
         encoder.end_encoding()
 
-        command_buffer.commit()
-        command_buffer.wait_until_completed()
+        encoder.commit()
+        encoder.wait_until_completed()
 
         # Get partial sums and compute final result
         partial_sums = buffer_output.to_numpy(np.float32, (grid_size,))
@@ -382,17 +390,18 @@ class TestPyMetalComputeOperations:
         np.testing.assert_allclose(gpu_result, expected, rtol=TEST_CONFIG["tolerance"])
 
 
+@requires_metal
 class TestPyMetalErrorHandling:
     """Test error handling and edge cases."""
 
-    def test_invalid_shader_compilation(self, metal_device):
+    def test_invalid_shader_compilation(self, device):
         """Test handling of invalid shader code."""
         invalid_shader = "This is not valid Metal code!"
 
         with pytest.raises(MetalError):
-            library = pymetallic.Library(metal_device, invalid_shader)
+            library = device.make_library(invalid_shader)
 
-    def test_nonexistent_function(self, metal_device):
+    def test_nonexistent_function(self, device):
         """Test handling of non-existent function names."""
         valid_shader = """
         #include <metal_stdlib>
@@ -400,12 +409,12 @@ class TestPyMetalErrorHandling:
         kernel void existing_function(device float* data [[buffer(0)]]) {}
         """
 
-        library = pymetallic.Library(metal_device, valid_shader)
+        library = device.make_library(valid_shader)
 
         with pytest.raises(pymetallic.MetalError):
             function = library.make_function("nonexistent_function")
 
-    def test_invalid_buffer_sizes(self, metal_device):
+    def test_invalid_buffer_sizes(self, device):
         """Test handling of invalid buffer sizes."""
         # with pytest.raises((pymetallic.MetalError, ValueError)):
         #    buffer = pymetallic.Buffer(metal_device, -1)  # Negative size
@@ -414,7 +423,7 @@ class TestPyMetalErrorHandling:
         #    buffer = pymetallic.Buffer(metal_device, 0)   # Zero size
         pass
 
-    def test_invalid_dispatch_dimensions(self, metal_device, command_queue):
+    def test_invalid_dispatch_dimensions(self, device, command_queue):
         """Test handling of invalid dispatch dimensions."""
         return
         shader_source = """
@@ -428,8 +437,7 @@ class TestPyMetalErrorHandling:
         pipeline_state = metal_device.make_compute_pipeline_state(function)
 
         buffer = pymetallic.Buffer(metal_device, 1000)
-        command_buffer = command_queue.make_command_buffer()
-        encoder = command_buffer.make_compute_command_encoder()
+        encoder = device.command_encoder
 
         encoder.set_compute_pipeline_state(pipeline_state)
         encoder.set_buffer(buffer, 0, 0)
@@ -439,18 +447,19 @@ class TestPyMetalErrorHandling:
             encoder.dispatch_threads((0, 1, 1), (1, 1, 1))  # Zero grid size
 
 
+@requires_metal
 class TestPyMetalPerformance:
     """Performance and benchmark tests."""
 
-    def test_large_array_operations(self, metal_device, command_queue, sample_data):
+    def test_large_array_operations(self, device, command_queue, sample_data):
         """Test performance with large arrays."""
         large_data = sample_data["large_array"]
 
         # Time the operation
         start_time = time.time()
 
-        buffer_input = pymetallic.Buffer.from_numpy(metal_device, large_data)
-        buffer_output = pymetallic.Buffer(metal_device, len(large_data) * 4)
+        buffer_input = device.make_buffer_from_numpy(large_data)
+        buffer_output = device.make_buffer(len(large_data) * 4)
 
         shader_source = """
         #include <metal_stdlib>
@@ -463,12 +472,11 @@ class TestPyMetalPerformance:
         }
         """
 
-        library = pymetallic.Library(metal_device, shader_source)
+        library = device.make_library(shader_source)
         function = library.make_function("square_elements")
-        pipeline_state = metal_device.make_compute_pipeline_state(function)
+        pipeline_state = device.make_compute_pipeline_state(function)
 
-        command_buffer = command_queue.make_command_buffer()
-        encoder = command_buffer.make_compute_command_encoder()
+        encoder = device.command_encoder
 
         encoder.set_compute_pipeline_state(pipeline_state)
         encoder.set_buffer(buffer_input, 0, 0)
@@ -476,8 +484,8 @@ class TestPyMetalPerformance:
         encoder.dispatch_threads((len(large_data), 1, 1), (256, 1, 1))
         encoder.end_encoding()
 
-        command_buffer.commit()
-        command_buffer.wait_until_completed()
+        encoder.commit()
+        encoder.wait_until_completed()
 
         result = buffer_output.to_numpy(np.float32, (len(large_data),))
 
@@ -493,7 +501,7 @@ class TestPyMetalPerformance:
         ), f"Operation took {elapsed_time:.2f}ms, expected < {TEST_CONFIG['performance_threshold_ms']}ms"
 
     @pytest.mark.benchmark
-    def test_memory_throughput_benchmark(self, metal_device, command_queue):
+    def test_memory_throughput_benchmark(self, device, command_queue):
         """Benchmark memory throughput."""
         sizes = [1000, 10000, 100000, 1000000]
         results = []
@@ -504,7 +512,7 @@ class TestPyMetalPerformance:
             start_time = time.time()
 
             # Upload to GPU
-            buffer = pymetallic.Buffer.from_numpy(metal_device, data)
+            buffer = device.make_buffer_from_numpy(data)
 
             # Download from GPU
             result = buffer.to_numpy(np.float32, data.shape)
@@ -526,9 +534,101 @@ class TestPyMetalPerformance:
             print(f"{size:,}\t\t{time_ms:.2f}\t\t{throughput:.2f}")
 
 
+@requires_metal
 def test_demos():
     from pymetallic.helpers import MetallicDemo
 
     md = MetallicDemo(quiet=True)
     for name, demo in md.get_demos().items():
         demo()
+
+
+@requires_metal
+def test_blit_fill_and_read_scalar(device):
+    n = 128
+    buf = device.make_buffer(n * 4)
+    fill_u32(device, buf, value=0xDEADBEEF, count_u32=n)
+    # spot check a few
+    arr = buf.to_numpy(np.uint32, (n,))
+    assert arr[0] == 0xDEADBEEF
+    assert arr[n // 2] == 0xDEADBEEF
+    assert arr[-1] == 0xDEADBEEF
+
+    # read_scalar convenience
+    first = read_scalar(command_queue, buf, np.uint32)
+    second = device.read_scalar(buf, np.uint32, 1)
+    assert first == 0xDEADBEEF
+    assert second == 0xDEADBEEF
+
+
+VADD_SRC = r"""
+#include <metal_stdlib>
+using namespace metal;
+
+kernel void vadd(device const float* a [[buffer(0)]],
+                 device const float* b [[buffer(1)]],
+                 device float*       o [[buffer(2)]],
+                 uint gid [[thread_position_in_grid]]) {
+    o[gid] = a[gid] + b[gid];
+}
+"""
+
+
+@requires_metal
+def test_vector_add(device):
+    n = 1024
+    a = np.random.rand(n).astype(np.float32)
+    b = np.random.rand(n).astype(np.float32)
+
+    buf_a = device.make_buffer_from_numpy(a)
+    buf_b = device.make_buffer_from_numpy(b)
+    buf_o = pm.Buffer(device, n * 4)
+
+    lib = device.make_library(VADD_SRC)
+    fn = lib.make_function("vadd")
+    pso = device.make_compute_pipeline_state(fn)
+
+    enc = device.command_encoder
+    enc.set_compute_pipeline_state(pso)
+    enc.set_buffer(buf_a, 0, 0)
+    enc.set_buffer(buf_b, 0, 1)
+    enc.set_buffer(buf_o, 0, 2)
+    enc.dispatch_threads((n, 1, 1), (min(n, 256), 1, 1))
+    enc.end_encoding()
+    enc.commit()
+    enc.wait_until_completed()
+
+    out = buf_o.to_numpy(np.float32, (n,))
+    np.testing.assert_allclose(out, a + b, rtol=1e-6, atol=1e-6)
+
+
+INC_SRC = r"""
+#include <metal_stdlib>
+using namespace metal;
+kernel void inc(device uint* data [[buffer(0)]],
+                uint gid [[thread_position_in_grid]]) {
+    data[gid] += 1u;
+}
+"""
+
+
+@requires_metal
+def test_kernel_cache_reuses_pipeline(device, command_queue):
+    # Build twice; should hit cache second time
+    k1 = device.make_kernel(source=INC_SRC, func="inc")
+    k2 = device.make_kernel(source=INC_SRC, func="inc")
+    assert isinstance(k1, Kernel)
+    assert isinstance(k2, Kernel)
+    # The cache stores per-device pipeline state; identity equality should hold
+    assert k1._pso is k2._pso
+
+    n = 64
+    buf = device.make_buffer_from_numpy(np.zeros(n, dtype=np.uint32))
+
+    # run twice via the convenience call
+    k1(command_queue, grid=(n, 1, 1), buffers=[(buf, 0)])
+    k2(command_queue, grid=(n, 1, 1), buffers=[(buf, 0)])
+
+    out = buf.to_numpy(np.uint32, (n,))
+    # each element incremented twice
+    assert (out == 2).all()
