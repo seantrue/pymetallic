@@ -1,5 +1,7 @@
 # requirements.txt
-# Python dependencies
+# DEPRECATED: Dependencies are now managed in pyproject.toml
+# This file is kept for backward compatibility only
+# Use: pip install -e . or pip install -e .[dev]
 
 numpy>=2.1
 

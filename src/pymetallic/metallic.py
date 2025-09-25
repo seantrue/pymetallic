@@ -10,8 +10,6 @@ from typing import List, Optional, Tuple, Dict, Any, Iterable
 import numpy as np
 from numpy.typing import DTypeLike
 
-import pymetallic as pm
-
 
 # Public error type
 class MetalError(Exception):
@@ -519,7 +517,7 @@ kernel void fill_u32(device uint32_t* data [[buffer(0)]],
 
 
 def fill_u32(
-    device: pm.Device, buffer: pm.Buffer, value: int, count_u32: int | None = None
+    device: "Device", buffer: "Buffer", value: int, count_u32: int | None = None
 ):
     """Fill a buffer with a 32-bit value using a tiny compute kernel."""
     lib = device.make_library(_FILL_SRC)
@@ -627,17 +625,17 @@ def _hash_key(
 class _KernelCache:
     def __init__(self):
         # key -> (Library, Function, ComputePipelineState)
-        self._map: Dict[Tuple[int, str], pm.ComputePipelineState] = {}
+        self._map: Dict[Tuple[int, str], "ComputePipelineState"] = {}
         self._seen: Dict[str, int] = {}  # stats (hits per key)
 
     def get(
         self,
-        device: pm.Device,
+        device: "Device",
         source: str,
         func_name: str,
         constants: Optional[Dict[str, Any]] = None,
         options: Optional[Dict[str, Any]] = None,
-    ) -> pm.ComputePipelineState:
+    ) -> "ComputePipelineState":
         key = _hash_key(source, func_name, constants, options)
         slot = (id(device), key)
         pso = self._map.get(slot)
@@ -662,7 +660,7 @@ kernel_cache = _KernelCache()
 class Kernel:
     """Ergonomic wrapper around a cached compute pipeline."""
 
-    device: pm.Device
+    device: "Device"
     source: str
     func: str
     constants: Optional[Dict[str, Any]] = None
@@ -675,10 +673,10 @@ class Kernel:
 
     def __call__(
         self,
-        queue: pm.CommandQueue,
+        queue: "CommandQueue",
         grid: Tuple[int, int, int],
         tgs: Optional[Tuple[int, int, int]] = None,
-        buffers: Optional[Iterable[Tuple[pm.Buffer, int]]] = None,
+        buffers: Optional[Iterable[Tuple["Buffer", int]]] = None,
         bytes_args: Optional[Iterable[Tuple[np.ndarray, int]]] = None,
     ) -> None:
         """
@@ -700,7 +698,7 @@ class Kernel:
         if bytes_args:
             # Note: pymetallic may not expose set_bytes; emulate with small constant buffers.
             for arr, idx in bytes_args:
-                cbuf = pm.Buffer.from_numpy(self.device, arr)
+                cbuf = Buffer.from_numpy(self.device, arr)
                 enc.set_buffer(cbuf, 0, idx)
 
         if tgs is None:

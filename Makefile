@@ -4,7 +4,7 @@
 .PHONY: all build clean install test benchmark help
 
 # Default target
-all: check format typecheck install-dev test-cov
+all: check format lint typecheck install-dev test-cov
 
 # Variables
 SWIFT_FILE = SwiftMetalBridge.swift
@@ -25,19 +25,31 @@ check:
 # Format Python code
 format:
 	@echo "Formatting Python code..."
-	$(PYTHON) -m black $(PACKAGE_PREFIX)/*.py $(PACKAGE_PREFIX)/scripts/*.py  $(SRC_PATH)/tests/*.py --line-length 88
+	uv run black $(PACKAGE_PREFIX)/*.py $(PACKAGE_PREFIX)/scripts/*.py tests/*.py examples/*.py --line-length 88
 	@echo "Formatting complete!"
+
+# Lint Python code
+lint:
+	@echo "Linting Python code..."
+	uv run ruff check $(PACKAGE_PREFIX)/ tests/ examples/
+	@echo "Linting complete!"
+
+# Fix lint issues automatically
+lint-fix:
+	@echo "Fixing lint issues..."
+	uv run ruff check --fix $(PACKAGE_PREFIX)/ tests/ examples/
+	@echo "Lint fixes applied!"
 
 # Make sure required packages are license compatible
 licensecheck:
 	@echo "Checking packages for compatibility..."
-	licensecheck
+	uv run licensecheck
 	@echo "License check complete"
 
 # Type checking
 typecheck:
 	@echo "Running type checks..."
-	$(PYTHON) -m mypy src/pymetallic src/tests --ignore-missing-imports
+	uv run mypy src/pymetallic tests --ignore-missing-imports
 	@echo "Type checking complete!"
 
 # Clean build artifacts
@@ -68,19 +80,19 @@ build: $(LIB_PATH)
 # Create distribution package
 dist: clean build
 	@echo "Creating distribution package..."
-	$(PYTHON) -m build
+	uv build
 	@echo "Distribution package created in dist/"
 
 # Install the library
 install: dist
 	@echo "Installing Python package..."
-	$(PYTHON) -m pip install dist/pymetallic*.whl
+	uv pip install dist/pymetallic*.whl
 	@echo "Installation complete!"
 
 # Install for development (current user only)
 install-dev: uninstall
 	@echo "Installing for development..."
-	$(PYTHON) -m pip install -e .[dev,docs,test]
+	uv sync --dev
 	@echo "Development installation complete!"
 
 # Run smoke test
@@ -93,15 +105,14 @@ smoke: $(LIB_PATH)
 # Run test suite
 test: $(LIB_PATH)
 	@echo "Running tests..."
-	py.test $(SRC_PATH)/tests
+	uv run pytest tests/
 	@echo "Tests complete!"
 
 # Run test suite with coverage
 test-cov: $(LIB_PATH)
-	@echo "Running tests..."
-	py.test --cov --cov-report html:coverage src
-	open coverage/index.html
-	@echo "Tests complete!"
+	@echo "Running tests with coverage..."
+	uv run pytest --cov=src/pymetallic --cov-report=html:coverage tests/
+	@echo "Tests complete! Coverage report at coverage/index.html"
 
 
 # Run performance benchmarks
@@ -112,11 +123,17 @@ benchmark: $(LIB_PATH)
 # Run comprehensive examples
 demos: $(LIB_PATH)
 	@echo "Running all demos..."
-	$(PYTHON) $(SRC_PATH)/scripts/demos.py --demos all
+	$(PYTHON) src/pymetallic/scripts/demo.py --demos all
+
+# Run basic examples
+examples: $(LIB_PATH)
+	@echo "Running examples..."
+	$(PYTHON) examples/basic_compute.py
+	@echo "Examples complete!"
 
 uninstall:
 	@echo "Uninstalling Python package..."
-	$(PYTHON) -m pip uninstall --yes pymetallic
+	uv pip uninstall pymetallic
 	@echo "Uninstallation complete..."
 
 

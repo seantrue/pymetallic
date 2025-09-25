@@ -51,13 +51,17 @@ Runs a GPU-accelerated Conway's Game of Life simulation on a 2D grid.
 ## Installation
 
 1. Clone the repository
-2. Run the build script:
+2. Install dependencies and set up development environment:
+   ```
+   uv sync --dev
+   ```
+3. Build the Swift bridge library:
    ```
    make build
    ```
-3. Install the Python package:
+4. For development installation:
    ```
-   make install
+   make install-dev
    ```
 
 ## Quick Example

@@ -18,12 +18,11 @@ try:
     _PIL_AVAILABLE = True
 except ImportError:
     pass
+# Import from the same package to avoid circular imports
 try:
-    import pymetallic
-    from pymetallic import Device, Buffer
-
+    from . import Device, Buffer
 except ImportError:
-    print("PyMetallic not available. Please build and install first:")
+    print("PyMetallic core not available. Please build and install first:")
     print("  make build && make install-dev")
     sys.exit(1)
 
