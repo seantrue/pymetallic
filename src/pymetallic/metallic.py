@@ -3,9 +3,12 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import os
-from ctypes import c_void_p, c_char_p, c_int32, c_uint64, c_bool
+import threading
+import weakref
+from collections.abc import Iterable
+from ctypes import c_bool, c_char_p, c_int32, c_uint64, c_void_p
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict, Any, Iterable
+from typing import Any
 
 import numpy as np
 from numpy.typing import DTypeLike
@@ -126,6 +129,27 @@ def _setup_function_signatures(lib: ctypes.CDLL) -> None:
     lib.metal_command_buffer_wait_until_completed.argtypes = [c_void_p]
     lib.metal_command_buffer_wait_until_completed.restype = None
 
+    # Resource cleanup functions (to be implemented in C library)
+    # These may not exist yet, so set them up conditionally
+    cleanup_functions = [
+        'metal_buffer_release',
+        'metal_library_release',
+        'metal_function_release',
+        'metal_compute_pipeline_state_release',
+        'metal_command_queue_release',
+        'metal_command_buffer_release',
+        'metal_compute_command_encoder_release'
+    ]
+
+    for func_name in cleanup_functions:
+        try:
+            func = getattr(lib, func_name)
+            func.argtypes = [c_void_p]
+            func.restype = None
+        except AttributeError:
+            # Function doesn't exist in C library yet - that's expected
+            pass
+
 
 def _get_metal_lib() -> ctypes.CDLL:
     global _metal_lib
@@ -136,6 +160,135 @@ def _get_metal_lib() -> ctypes.CDLL:
 
 
 # Public storage mode constants
+
+
+class _MetalResourceManager:
+    """Thread-safe manager for tracking Metal resource cleanup."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._cleanup_count = 0
+        self._cleanup_attempts = 0  # Track cleanup attempts even if C functions don't exist
+
+    def register_buffer(self, buffer_ptr: c_void_p, python_obj) -> None:
+        """Register a Metal buffer for cleanup when python_obj is deleted."""
+        def cleanup_buffer():
+            with self._lock:
+                self._cleanup_attempts += 1
+                try:
+                    lib = _get_metal_lib()
+                    if hasattr(lib, 'metal_buffer_release'):
+                        lib.metal_buffer_release(buffer_ptr)
+                        self._cleanup_count += 1
+                except Exception:
+                    # Silently ignore cleanup errors (library may be unloaded)
+                    pass
+
+        weakref.finalize(python_obj, cleanup_buffer)
+
+    def register_library(self, library_ptr: c_void_p, python_obj) -> None:
+        """Register a Metal library for cleanup when python_obj is deleted."""
+        def cleanup_library():
+            with self._lock:
+                self._cleanup_attempts += 1
+                try:
+                    lib = _get_metal_lib()
+                    if hasattr(lib, 'metal_library_release'):
+                        lib.metal_library_release(library_ptr)
+                        self._cleanup_count += 1
+                except Exception:
+                    pass
+
+        weakref.finalize(python_obj, cleanup_library)
+
+    def register_function(self, function_ptr: c_void_p, python_obj) -> None:
+        """Register a Metal function for cleanup when python_obj is deleted."""
+        def cleanup_function():
+            with self._lock:
+                self._cleanup_attempts += 1
+                try:
+                    lib = _get_metal_lib()
+                    if hasattr(lib, 'metal_function_release'):
+                        lib.metal_function_release(function_ptr)
+                        self._cleanup_count += 1
+                except Exception:
+                    pass
+
+        weakref.finalize(python_obj, cleanup_function)
+
+    def register_pipeline_state(self, pipeline_ptr: c_void_p, python_obj) -> None:
+        """Register a compute pipeline state for cleanup when python_obj is deleted."""
+        def cleanup_pipeline():
+            with self._lock:
+                self._cleanup_attempts += 1
+                try:
+                    lib = _get_metal_lib()
+                    if hasattr(lib, 'metal_compute_pipeline_state_release'):
+                        lib.metal_compute_pipeline_state_release(pipeline_ptr)
+                        self._cleanup_count += 1
+                except Exception:
+                    pass
+
+        weakref.finalize(python_obj, cleanup_pipeline)
+
+    def register_command_queue(self, queue_ptr: c_void_p, python_obj) -> None:
+        """Register a command queue for cleanup when python_obj is deleted."""
+        def cleanup_queue():
+            with self._lock:
+                self._cleanup_attempts += 1
+                try:
+                    lib = _get_metal_lib()
+                    if hasattr(lib, 'metal_command_queue_release'):
+                        lib.metal_command_queue_release(queue_ptr)
+                        self._cleanup_count += 1
+                except Exception:
+                    pass
+
+        weakref.finalize(python_obj, cleanup_queue)
+
+    def register_command_buffer(self, buffer_ptr: c_void_p, python_obj) -> None:
+        """Register a command buffer for cleanup when python_obj is deleted."""
+        def cleanup_command_buffer():
+            with self._lock:
+                self._cleanup_attempts += 1
+                try:
+                    lib = _get_metal_lib()
+                    if hasattr(lib, 'metal_command_buffer_release'):
+                        lib.metal_command_buffer_release(buffer_ptr)
+                        self._cleanup_count += 1
+                except Exception:
+                    pass
+
+        weakref.finalize(python_obj, cleanup_command_buffer)
+
+    def register_encoder(self, encoder_ptr: c_void_p, python_obj) -> None:
+        """Register a compute command encoder for cleanup when python_obj is deleted."""
+        def cleanup_encoder():
+            with self._lock:
+                self._cleanup_attempts += 1
+                try:
+                    lib = _get_metal_lib()
+                    if hasattr(lib, 'metal_compute_command_encoder_release'):
+                        lib.metal_compute_command_encoder_release(encoder_ptr)
+                        self._cleanup_count += 1
+                except Exception:
+                    pass
+
+        weakref.finalize(python_obj, cleanup_encoder)
+
+    def get_cleanup_count(self) -> int:
+        """Get the number of resources that have been cleaned up."""
+        with self._lock:
+            return self._cleanup_count
+
+    def get_cleanup_attempts(self) -> int:
+        """Get the number of cleanup attempts (including failed ones)."""
+        with self._lock:
+            return self._cleanup_attempts
+
+
+# Global resource manager instance
+_resource_manager = _MetalResourceManager()
 
 
 class Device:
@@ -150,7 +303,7 @@ class Device:
         self._command_encoder = None
 
     @classmethod
-    def get_default_device(cls) -> "Device":
+    def get_default_device(cls) -> Device:
         lib = _get_metal_lib()
         device_ptr = lib.metal_get_default_device()
         if not device_ptr:
@@ -158,13 +311,13 @@ class Device:
         return cls(device_ptr)
 
     @classmethod
-    def get_all_devices(cls) -> List["Device"]:
+    def get_all_devices(cls) -> list[Device]:
         lib = _get_metal_lib()
         count = lib.metal_get_device_count()
         if count <= 0:
             return []
         devices_ptr = lib.metal_get_all_devices()
-        result: List[Device] = []
+        result: list[Device] = []
         # devices_ptr is a pointer to an array of c_void_p of length count
         for i in range(count):
             ptr = devices_ptr[i]
@@ -184,7 +337,7 @@ class Device:
             lib.metal_device_supports_shader_barycentric_coordinates(self._device_ptr)
         )
 
-    def make_compute_pipeline_state(self, fun: "Function") -> "ComputePipelineState":
+    def make_compute_pipeline_state(self, fun: Function) -> ComputePipelineState:
         return ComputePipelineState(self, fun)
 
     def make_buffer_from_numpy(self, array, storage_mode: int | None = None):
@@ -252,7 +405,10 @@ class CommandQueue:
         if not self._queue_ptr:
             raise MetalError("Failed to create command queue")
 
-    def make_command_buffer(self) -> "CommandBuffer":
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_command_queue(self._queue_ptr, self)
+
+    def make_command_buffer(self) -> CommandBuffer:
         return CommandBuffer(self)
 
 
@@ -291,10 +447,13 @@ class Buffer:
         if not self._buffer_ptr:
             raise MetalError("Failed to create buffer")
 
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_buffer(self._buffer_ptr, self)
+
     @classmethod
     def from_numpy(
         cls, device: Device, array: np.ndarray, storage_mode: int = STORAGE_SHARED
-    ) -> "Buffer":
+    ) -> Buffer:
         lib = _get_metal_lib()
         resource_options = cls._storage_mode_to_resource_options(storage_mode)
         arr = np.ascontiguousarray(array)
@@ -310,10 +469,14 @@ class Buffer:
         buf.device = device
         buf.size = arr.nbytes
         buf._buffer_ptr = c_void_p(ptr)
+
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_buffer(buf._buffer_ptr, buf)
+
         return buf
 
     def to_numpy(
-        self, dtype: DTypeLike, shape: Optional[Tuple[int, ...]] = None
+        self, dtype: DTypeLike, shape: tuple[int, ...] | None = None
     ) -> np.ndarray:
         lib = _get_metal_lib()
         contents_ptr = lib.metal_buffer_get_contents(self._buffer_ptr)
@@ -373,7 +536,10 @@ class Library:
         if not self._library_ptr:
             raise MetalError("Failed to compile Metal library")
 
-    def make_function(self, name: str) -> "Function":
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_library(self._library_ptr, self)
+
+    def make_function(self, name: str) -> Function:
         lib = _get_metal_lib()
         func_ptr = lib.metal_library_make_function(
             self._library_ptr, name.encode("utf-8")
@@ -391,6 +557,9 @@ class Function:
         self.name = name
         self._function_ptr = c_void_p(function_ptr)
 
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_function(self._function_ptr, self)
+
 
 class ComputePipelineState:
     """Compute pipeline state wrapper"""
@@ -407,6 +576,9 @@ class ComputePipelineState:
         if not self._pipeline_ptr:
             raise MetalError("Failed to create compute pipeline state")
 
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_pipeline_state(self._pipeline_ptr, self)
+
 
 class CommandBuffer:
     """Metal command buffer wrapper"""
@@ -420,7 +592,10 @@ class CommandBuffer:
         if not self._buffer_ptr:
             raise MetalError("Failed to create command buffer")
 
-    def make_compute_command_encoder(self) -> "ComputeCommandEncoder":
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_command_buffer(self._buffer_ptr, self)
+
+    def make_compute_command_encoder(self) -> ComputeCommandEncoder:
         return ComputeCommandEncoder(self)
 
     def commit(self):
@@ -449,6 +624,9 @@ class ComputeCommandEncoder:
         if not self._encoder_ptr:
             raise MetalError("Failed to create compute command encoder")
 
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_encoder(self._encoder_ptr, self)
+
     def set_compute_pipeline_state(self, pipeline: ComputePipelineState):
         lib = _get_metal_lib()
         lib.metal_compute_command_encoder_set_compute_pipeline_state(
@@ -469,8 +647,8 @@ class ComputeCommandEncoder:
 
     def dispatch_threads(
         self,
-        threads_per_grid: Tuple[int, int, int],
-        threads_per_threadgroup: Tuple[int, int, int],
+        threads_per_grid: tuple[int, int, int],
+        threads_per_threadgroup: tuple[int, int, int],
     ):
         lib = _get_metal_lib()
         tx, ty, tz = map(int, threads_per_grid)
@@ -481,8 +659,8 @@ class ComputeCommandEncoder:
 
     def dispatch_threadgroups(
         self,
-        groups: Tuple[int, int, int],
-        threads_per_threadgroup: Tuple[int, int, int],
+        groups: tuple[int, int, int],
+        threads_per_threadgroup: tuple[int, int, int],
     ):
         lib = _get_metal_lib()
         gx, gy, gz = map(int, groups)
@@ -516,9 +694,7 @@ kernel void fill_u32(device uint32_t* data [[buffer(0)]],
 """
 
 
-def fill_u32(
-    device: "Device", buffer: "Buffer", value: int, count_u32: int | None = None
-):
+def fill_u32(device: Device, buffer: Buffer, value: int, count_u32: int | None = None):
     """Fill a buffer with a 32-bit value using a tiny compute kernel."""
     lib = device.make_library(_FILL_SRC)
     fn = lib.make_function("fill_u32")
@@ -602,8 +778,8 @@ def run_simple_compute_example():
 def _hash_key(
     source: str,
     func_name: str,
-    constants: Optional[Dict[str, Any]] = None,
-    options: Optional[Dict[str, Any]] = None,
+    constants: dict[str, Any] | None = None,
+    options: dict[str, Any] | None = None,
 ) -> str:
     h = hashlib.sha256()
     h.update(source.encode("utf-8"))
@@ -625,32 +801,50 @@ def _hash_key(
 class _KernelCache:
     def __init__(self):
         # key -> (Library, Function, ComputePipelineState)
-        self._map: Dict[Tuple[int, str], "ComputePipelineState"] = {}
-        self._seen: Dict[str, int] = {}  # stats (hits per key)
+        self._map: dict[tuple[int, str], ComputePipelineState] = {}
+        self._seen: dict[str, int] = {}  # stats (hits per key)
+        self._lock = threading.RLock()  # Reentrant lock for thread safety
 
     def get(
         self,
-        device: "Device",
+        device: Device,
         source: str,
         func_name: str,
-        constants: Optional[Dict[str, Any]] = None,
-        options: Optional[Dict[str, Any]] = None,
-    ) -> "ComputePipelineState":
+        constants: dict[str, Any] | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> ComputePipelineState:
         key = _hash_key(source, func_name, constants, options)
         slot = (id(device), key)
-        pso = self._map.get(slot)
-        if pso is not None:
-            self._seen[key] = self._seen.get(key, 0) + 1
-            return pso
+
+        # First, check if we already have it (read lock)
+        with self._lock:
+            pso = self._map.get(slot)
+            if pso is not None:
+                self._seen[key] = self._seen.get(key, 0) + 1
+                return pso
+
+        # If not in cache, compile it (but check again in case another thread compiled it)
         lib = device.make_library(source)  # , constants=constants, options=options)
         fn = lib.make_function(func_name)
         pso = device.make_compute_pipeline_state(fn)
-        self._map[slot] = pso
-        self._seen[key] = 1
-        return pso
 
-    def stats(self) -> Dict[str, int]:
-        return dict(self._seen)
+        # Update cache with new pipeline state
+        with self._lock:
+            # Double-check in case another thread added it while we were compiling
+            existing_pso = self._map.get(slot)
+            if existing_pso is not None:
+                # Another thread beat us to it, return their result
+                self._seen[key] = self._seen.get(key, 0) + 1
+                return existing_pso
+
+            # We're the first to add it
+            self._map[slot] = pso
+            self._seen[key] = 1
+            return pso
+
+    def stats(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._seen)
 
 
 kernel_cache = _KernelCache()
@@ -660,11 +854,11 @@ kernel_cache = _KernelCache()
 class Kernel:
     """Ergonomic wrapper around a cached compute pipeline."""
 
-    device: "Device"
+    device: Device
     source: str
     func: str
-    constants: Optional[Dict[str, Any]] = None
-    options: Optional[Dict[str, Any]] = None
+    constants: dict[str, Any] | None = None
+    options: dict[str, Any] | None = None
 
     def __post_init__(self):
         self._pso = kernel_cache.get(
@@ -673,11 +867,11 @@ class Kernel:
 
     def __call__(
         self,
-        queue: "CommandQueue",
-        grid: Tuple[int, int, int],
-        tgs: Optional[Tuple[int, int, int]] = None,
-        buffers: Optional[Iterable[Tuple["Buffer", int]]] = None,
-        bytes_args: Optional[Iterable[Tuple[np.ndarray, int]]] = None,
+        queue: CommandQueue,
+        grid: tuple[int, int, int],
+        tgs: tuple[int, int, int] | None = None,
+        buffers: Iterable[tuple[Buffer, int]] | None = None,
+        bytes_args: Iterable[tuple[np.ndarray, int]] | None = None,
     ) -> None:
         """
         Run the kernel once.

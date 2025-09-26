@@ -4,19 +4,18 @@ PyMetallic: Python bindings for Apple Metal using swift-cffi
 Architecture inspired by PyOpenCL for familiar API design
 """
 
-
 # Public API now re-exported from metallic.py
 from .metallic import (
-    MetalError,
-    Device,
-    CommandQueue,
     Buffer,
-    Library,
-    Function,
-    ComputePipelineState,
     CommandBuffer,
+    CommandQueue,
     ComputeCommandEncoder,
+    ComputePipelineState,
+    Device,
+    Function,
     Kernel,
+    Library,
+    MetalError,
     run_simple_compute_example,
 )
 

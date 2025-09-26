@@ -242,6 +242,43 @@ public func metal_release_object(_ objectPtr: UnsafeMutableRawPointer) {
     _ = Unmanaged<AnyObject>.fromOpaque(objectPtr).takeRetainedValue()
 }
 
+// MARK: - Specific Resource Release Functions
+
+@_cdecl("metal_buffer_release")
+public func metal_buffer_release(_ bufferPtr: UnsafeMutableRawPointer) {
+    _ = Unmanaged<MTLBuffer>.fromOpaque(bufferPtr).takeRetainedValue()
+}
+
+@_cdecl("metal_library_release")
+public func metal_library_release(_ libraryPtr: UnsafeMutableRawPointer) {
+    _ = Unmanaged<MTLLibrary>.fromOpaque(libraryPtr).takeRetainedValue()
+}
+
+@_cdecl("metal_function_release")
+public func metal_function_release(_ functionPtr: UnsafeMutableRawPointer) {
+    _ = Unmanaged<MTLFunction>.fromOpaque(functionPtr).takeRetainedValue()
+}
+
+@_cdecl("metal_compute_pipeline_state_release")
+public func metal_compute_pipeline_state_release(_ pipelinePtr: UnsafeMutableRawPointer) {
+    _ = Unmanaged<MTLComputePipelineState>.fromOpaque(pipelinePtr).takeRetainedValue()
+}
+
+@_cdecl("metal_command_queue_release")
+public func metal_command_queue_release(_ queuePtr: UnsafeMutableRawPointer) {
+    _ = Unmanaged<MTLCommandQueue>.fromOpaque(queuePtr).takeRetainedValue()
+}
+
+@_cdecl("metal_command_buffer_release")
+public func metal_command_buffer_release(_ bufferPtr: UnsafeMutableRawPointer) {
+    _ = Unmanaged<MTLCommandBuffer>.fromOpaque(bufferPtr).takeRetainedValue()
+}
+
+@_cdecl("metal_compute_command_encoder_release")
+public func metal_compute_command_encoder_release(_ encoderPtr: UnsafeMutableRawPointer) {
+    _ = Unmanaged<MTLComputeCommandEncoder>.fromOpaque(encoderPtr).takeRetainedValue()
+}
+
 // MARK: - Error Handling
 
 @_cdecl("metal_get_last_error")

@@ -3,6 +3,7 @@
 PyMetallic Complete Demo and Documentation
 Comprehensive demonstration of the PyMetallic library capabilities
 """
+
 import os
 import sys
 import time
@@ -20,7 +21,7 @@ except ImportError:
     pass
 # Import from the same package to avoid circular imports
 try:
-    from . import Device, Buffer
+    from . import Buffer, Device, Library, ComputePipelineState, MetalError
 except ImportError:
     print("PyMetallic core not available. Please build and install first:")
     print("  make build && make install-dev")
@@ -43,7 +44,7 @@ class StopWatch:
     def __str__(self):
         if self.clicks == 0:
             return "No clicks"
-        return f"⏱ Elapsed {self.elapsed_time:.3f} sec for {self.clicks} steps, average = {self.elapsed_time/self.clicks:.3f}"
+        return f"⏱ Elapsed {self.elapsed_time:.3f} sec for {self.clicks} steps, average = {self.elapsed_time / self.clicks:.3f}"
 
 
 class AnimateIt:
@@ -277,7 +278,7 @@ class MetallicDemo:
         shader_source = """
         #include <metal_stdlib>
         using namespace metal;
-        
+
         kernel void vector_add(device float* a [[buffer(0)]],
                               device float* b [[buffer(1)]],
                               device float* result [[buffer(2)]],
@@ -286,9 +287,9 @@ class MetallicDemo:
         }
         """
 
-        library = pymetallic.Library(self.device, shader_source)
+        library = Library(self.device, shader_source)
         function = library.make_function("vector_add")
-        pipeline_state = pymetallic.ComputePipelineState(self.device, function)
+        pipeline_state = ComputePipelineState(self.device, function)
 
         # Execute
         command_buffer = queue.make_command_buffer()
@@ -318,7 +319,7 @@ class MetallicDemo:
 
         # Compare with NumPy
         start_time = time.time()
-        numpy_result = a + b
+        a + b
         numpy_time = (time.time() - start_time) * 1000
 
         speedup = numpy_time / metal_time if metal_time > 0 else 0
@@ -393,28 +394,28 @@ class MetallicDemo:
         shader_source = """
         #include <metal_stdlib>
         using namespace metal;
-        
+
         kernel void mandelbrot(device float* output [[buffer(0)]],
                               constant uint& width [[buffer(1)]],
                               constant uint& height [[buffer(2)]],
                               constant uint& max_iterations [[buffer(3)]],
                               uint2 gid [[thread_position_in_grid]]) {
-            
+
             if (gid.x >= width || gid.y >= height) return;
-            
+
             float x = (float(gid.x) / float(width)) * 3.5 - 2.5;
             float y = (float(gid.y) / float(height)) * 2.0 - 1.0;
-            
+
             float zx = 0.0, zy = 0.0;
             uint iter = 0;
-            
+
             while (iter < max_iterations && (zx*zx + zy*zy) < 4.0) {
                 float tmp = zx*zx - zy*zy + x;
                 zy = 2.0*zx*zy + y;
                 zx = tmp;
                 iter++;
             }
-            
+
             output[gid.y * width + gid.x] = float(iter) / float(max_iterations);
         }
         """
@@ -432,9 +433,9 @@ class MetallicDemo:
             np.array([max_iterations], dtype=np.uint32)
         )
 
-        library = pymetallic.Library(self.device, shader_source)
+        library = Library(self.device, shader_source)
         function = library.make_function("mandelbrot")
-        pipeline_state = pymetallic.ComputePipelineState(self.device, function)
+        pipeline_state = ComputePipelineState(self.device, function)
 
         start_time = time.time()
 
@@ -457,9 +458,9 @@ class MetallicDemo:
         result = buffer_output.to_numpy(np.float32, (height, width))
 
         self.print(f"  Mandelbrot set: {width}×{height} in {computation_time:.1f}ms")
-        self.print(f"  Generated {width*height:,} pixels")
+        self.print(f"  Generated {width * height:,} pixels")
         self.print(
-            f"  Performance: {(width*height*max_iterations)/(computation_time*1000)/1e9:.2f} GOP/s"
+            f"  Performance: {(width * height * max_iterations) / (computation_time * 1000) / 1e9:.2f} GOP/s"
         )
         # Display image if PIL is available
         display_array(result, title=f"Mandelbrot {width}x{height}")
@@ -473,13 +474,13 @@ class MetallicDemo:
         test_data = np.random.random(10000).astype(np.float32)
 
         storage_modes = [
-            (pymetallic.Buffer.STORAGE_SHARED, "Shared"),
-            (pymetallic.Buffer.STORAGE_MANAGED, "Managed"),
+            (Buffer.STORAGE_SHARED, "Shared"),
+            (Buffer.STORAGE_MANAGED, "Managed"),
             # These tests do not work for Private memory
             # On macOS, MTLStorageModePrivate buffers are not CPU-accessible.
             # Calling to_numpy on such buffers will not work and may return invalid data or crash.
             # For CPU readback from private buffers, you need a blit/compute copy into a shared/managed buffer.
-            # (pymetallic.Buffer.STORAGE_PRIVATE, "Private"),
+            # (Buffer.STORAGE_PRIVATE, "Private"),
         ]
 
         for mode, name in storage_modes:
@@ -528,7 +529,7 @@ class MetallicDemo:
             original_image[300:500, l:r, :] = color
         animation.add_frame(original_image)
         # Multi-stage image processing shader
-        processing_shader = f"""
+        processing_shader = """
         #include <metal_stdlib>
         using namespace metal;
 
@@ -537,7 +538,7 @@ class MetallicDemo:
                                             device float* temp_buffer [[buffer(2)]],
                                             constant uint& width [[buffer(3)]],
                                             constant uint& height [[buffer(4)]],
-                                            uint2 gid [[thread_position_in_grid]]) {{
+                                            uint2 gid [[thread_position_in_grid]]) {
 
             if (gid.x >= width || gid.y >= height) return;
 
@@ -547,14 +548,14 @@ class MetallicDemo:
 
             // Stage 1: Gaussian blur (simplified 3x3 kernel)
             float4 blurred = float4(0.0);
-            float gaussian_kernel[9] = {{0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625}};
+            float gaussian_kernel[9] = {0.0625, 0.125, 0.0625, 0.125, 0.25, 0.125, 0.0625, 0.125, 0.0625};
 
-            for (int dy = -1; dy <= 1; dy++) {{
-                for (int dx = -1; dx <= 1; dx++) {{
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
                     int nx = int(gid.x) + dx;
                     int ny = int(gid.y) + dy;
 
-                    if (nx >= 0 && nx < int(width) && ny >= 0 && ny < int(height)) {{
+                    if (nx >= 0 && nx < int(width) && ny >= 0 && ny < int(height)) {
                         uint neighbor_idx = (ny * int(width) + nx) * channels;
                         float weight = gaussian_kernel[(dy + 1) * 3 + (dx + 1)];
 
@@ -562,36 +563,36 @@ class MetallicDemo:
                         blurred.g += input[neighbor_idx + 1] * weight;
                         blurred.b += input[neighbor_idx + 2] * weight;
                         blurred.a += input[neighbor_idx + 3] * weight;
-                    }}
-                }}
-            }}
+                    }
+                }
+            }
 
             // Stage 2: Edge detection (Sobel operator)
             float4 edge_x = float4(0.0);
             float4 edge_y = float4(0.0);
 
-            float sobel_x[9] = {{-1, 0, 1, -2, 0, 2, -1, 0, 1}};
-            float sobel_y[9] = {{-1, -2, -1, 0, 0, 0, 1, 2, 1}};
+            float sobel_x[9] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
+            float sobel_y[9] = {-1, -2, -1, 0, 0, 0, 1, 2, 1};
 
-            for (int dy = -1; dy <= 1; dy++) {{
-                for (int dx = -1; dx <= 1; dx++) {{
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
                     int nx = int(gid.x) + dx;
                     int ny = int(gid.y) + dy;
 
-                    if (nx >= 0 && nx < int(width) && ny >= 0 && ny < int(height)) {{
+                    if (nx >= 0 && nx < int(width) && ny >= 0 && ny < int(height)) {
                         uint neighbor_idx = (ny * int(width) + nx) * channels;
                         int kernel_idx = (dy + 1) * 3 + (dx + 1);
 
                         float wx = sobel_x[kernel_idx];
                         float wy = sobel_y[kernel_idx];
 
-                        edge_x += float4(input[neighbor_idx + 0], input[neighbor_idx + 1], 
+                        edge_x += float4(input[neighbor_idx + 0], input[neighbor_idx + 1],
                                         input[neighbor_idx + 2], input[neighbor_idx + 3]) * wx;
                         edge_y += float4(input[neighbor_idx + 0], input[neighbor_idx + 1],
                                         input[neighbor_idx + 2], input[neighbor_idx + 3]) * wy;
-                    }}
-                }}
-            }}
+                    }
+                }
+            }
 
             float4 edge_magnitude = sqrt(edge_x * edge_x + edge_y * edge_y);
 
@@ -609,7 +610,7 @@ class MetallicDemo:
             output[pixel_idx + 1] = final_color.g;
             output[pixel_idx + 2] = final_color.b;
             output[pixel_idx + 3] = final_color.a;
-        }}
+        }
         """
 
         # Create buffers
@@ -651,15 +652,15 @@ class MetallicDemo:
         processed_image = output_buffer.to_numpy(np.float32, original_image.shape)
         animation.add_frame(processed_image)
         # Validation checks
-        assert (
-            processed_image.shape == original_image.shape
-        ), "Output shape should match input"
-        assert np.all(processed_image >= 0.0) and np.all(
-            processed_image <= 1.0
-        ), "Processed image values should be in [0, 1] range"
-        assert not np.array_equal(
-            processed_image, original_image
-        ), "Processed image should be different from original"
+        assert processed_image.shape == original_image.shape, (
+            "Output shape should match input"
+        )
+        assert np.all(processed_image >= 0.0) and np.all(processed_image <= 1.0), (
+            "Processed image values should be in [0, 1] range"
+        )
+        assert not np.array_equal(processed_image, original_image), (
+            "Processed image should be different from original"
+        )
 
         # Performance metrics
         pixels_processed = width * height
@@ -668,16 +669,16 @@ class MetallicDemo:
         self.print(f"✅ Processed {width}×{height} image in {processing_time:.1f}ms")
         self.print(f"📊 Performance: {megapixels_per_second:.1f} Megapixels/second")
         self.print(
-            f"🎨 Pipeline stages: Gaussian blur → Edge detection → Color correction"
+            "🎨 Pipeline stages: Gaussian blur → Edge detection → Color correction"
         )
         animation.show()
         # Performance assertion for hero test
-        assert (
-            processing_time < 500
-        ), f"Image processing should complete in <500ms, took {processing_time:.1f}ms"
-        assert (
-            megapixels_per_second > 1.0
-        ), f"Should process >1 MP/s, achieved {megapixels_per_second:.1f} MP/s"
+        assert processing_time < 500, (
+            f"Image processing should complete in <500ms, took {processing_time:.1f}ms"
+        )
+        assert megapixels_per_second > 1.0, (
+            f"Should process >1 MP/s, achieved {megapixels_per_second:.1f} MP/s"
+        )
 
     def demo_cellular_automata(
         self,
@@ -718,24 +719,24 @@ class MetallicDemo:
         )
 
         # Metal kernel for one Life step (with wrap-around)
-        source = f"""
+        source = """
         #include <metal_stdlib>
         using namespace metal;
 
-        struct Params {{
+        struct Params {
             uint width;
             uint height;
-        }};
+        };
 
-        inline uint wrap_int(int v, int m) {{
+        inline uint wrap_int(int v, int m) {
             int r = v % m;
             return (uint)(r < 0 ? r + m : r);
-        }}
+        }
 
         kernel void life_step(const device uchar* in_state     [[buffer(0)]],
                                    device uchar* out_state    [[buffer(1)]],
                              const device Params* p            [[buffer(2)]],
-                             uint2 gid                         [[thread_position_in_grid]]) {{
+                             uint2 gid                         [[thread_position_in_grid]]) {
 
             uint W = p->width;
             uint H = p->height;
@@ -746,21 +747,21 @@ class MetallicDemo:
 
             int count = 0;
             // 8-neighborhood
-            for (int dy = -1; dy <= 1; ++dy) {{
-                for (int dx = -1; dx <= 1; ++dx) {{
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
                     if (dx == 0 && dy == 0) continue;
                     uint nx = wrap_int(x + dx, (int)W);
                     uint ny = wrap_int(y + dy, (int)H);
                     uint nidx = ny * W + nx;
                     count += in_state[nidx] > 0 ? 1 : 0;
-                }}
-            }}
+                }
+            }
 
             uint idx = (uint)y * W + (uint)x;
             bool alive = in_state[idx] > 0;
             bool next_alive = (alive && (count == 2 || count == 3)) || (!alive && count == 3);
             out_state[idx] = next_alive ? (uchar)1 : (uchar)0;
-        }}
+        }
         """
 
         lib = device.make_library(source)
@@ -914,11 +915,11 @@ class MetallicDemo:
         params_buf = device.make_buffer_from_numpy(params_words)
 
         # Metal kernels
-        source = f"""
+        source = """
         #include <metal_stdlib>
         using namespace metal;
 
-        struct Params {{
+        struct Params {
             uint width;
             uint height;
             float dt;
@@ -928,15 +929,15 @@ class MetallicDemo:
             float fy;
             float fr;
             float fs;
-        }};
+        };
 
-        inline uint idx(uint x, uint y, uint W) {{
+        inline uint idx(uint x, uint y, uint W) {
             return y * W + x;
-        }}
+        }
 
-        inline float clamp01(float v) {{ return clamp(v, 0.0f, 1.0f); }}
+        inline float clamp01(float v) { return clamp(v, 0.0f, 1.0f); }
 
-        inline float2 sample_vel(const device float2* vel, float x, float y, uint W, uint H) {{
+        inline float2 sample_vel(const device float2* vel, float x, float y, uint W, uint H) {
             // bilinear sample at (x,y) in grid space
             x = clamp(x, 0.0f, (float)(W-1));
             y = clamp(y, 0.0f, (float)(H-1));
@@ -953,9 +954,9 @@ class MetallicDemo:
             float2 vx0 = mix(v00, v10, tx);
             float2 vx1 = mix(v01, v11, tx);
             return mix(vx0, vx1, ty);
-        }}
+        }
 
-        inline float sample_s(const device float* s, float x, float y, uint W, uint H) {{
+        inline float sample_s(const device float* s, float x, float y, uint W, uint H) {
             x = clamp(x, 0.0f, (float)(W-1));
             y = clamp(y, 0.0f, (float)(H-1));
             uint x0 = (uint)floor(x);
@@ -971,11 +972,11 @@ class MetallicDemo:
             float sx0 = mix(s00, s10, tx);
             float sx1 = mix(s01, s11, tx);
             return mix(sx0, sx1, ty);
-        }}
+        }
 
         kernel void add_force(const device Params* P            [[buffer(3)]],
                               device float2* vel_out            [[buffer(0)]],
-                              uint2 gid                         [[thread_position_in_grid]]) {{
+                              uint2 gid                         [[thread_position_in_grid]]) {
             uint W = P->width, H = P->height;
             if (gid.x >= W || gid.y >= H) return;
             float2 pos = float2(P->fx, P->fy);
@@ -986,24 +987,24 @@ class MetallicDemo:
             float influence = exp(-dist2 / (r*r));
             float2 orth = float2(-d.y, d.x);
             vel_out[idx(gid.x, gid.y, W)] += normalize(orth + 1e-5) * (P->fs * influence);
-        }}
+        }
 
         kernel void advect_vel(const device Params* P           [[buffer(3)]],
                                const device float2* vel_in      [[buffer(0)]],
                                device float2* vel_out           [[buffer(1)]],
-                               uint2 gid                        [[thread_position_in_grid]]) {{
+                               uint2 gid                        [[thread_position_in_grid]]) {
             uint W = P->width, H = P->height;
             if (gid.x >= W || gid.y >= H) return;
             float2 v = vel_in[idx(gid.x, gid.y, W)];
             float x = (float)gid.x - P->dt * v.x;
             float y = (float)gid.y - P->dt * v.y;
             vel_out[idx(gid.x, gid.y, W)] = sample_vel(vel_in, x, y, W, H);
-        }}
+        }
 
         kernel void divergence(const device Params* P           [[buffer(3)]],
                                const device float2* vel         [[buffer(0)]],
                                device float* div_out            [[buffer(1)]],
-                               uint2 gid                        [[thread_position_in_grid]]) {{
+                               uint2 gid                        [[thread_position_in_grid]]) {
             uint W = P->width, H = P->height;
             if (gid.x >= W || gid.y >= H) return;
             uint x = gid.x, y = gid.y;
@@ -1017,13 +1018,13 @@ class MetallicDemo:
             float2 vyp = vel[idx(x,yp,W)];
             float div = 0.5f * ((vxp.x - vxm.x) + (vyp.y - vym.y));
             div_out[idx(x,y,W)] = div;
-        }}
+        }
 
         kernel void jacobi_pressure(const device Params* P      [[buffer(3)]],
                                     const device float* p_in    [[buffer(0)]],
                                     const device float* b       [[buffer(1)]],
                                     device float* p_out         [[buffer(2)]],
-                                    uint2 gid                   [[thread_position_in_grid]]) {{
+                                    uint2 gid                   [[thread_position_in_grid]]) {
             uint W = P->width, H = P->height;
             if (gid.x >= W || gid.y >= H) return;
             uint x = gid.x, y = gid.y;
@@ -1039,13 +1040,13 @@ class MetallicDemo:
             // alpha = -dx*dx, rBeta = 0.25
             float p_new = (pL + pR + pB + pT - rhs) * 0.25f;
             p_out[idx(x,y,W)] = p_new;
-        }}
+        }
 
         kernel void subtract_gradient(const device Params* P    [[buffer(3)]],
                                       const device float2* vel_in [[buffer(0)]],
                                       const device float* p     [[buffer(1)]],
                                       device float2* vel_out    [[buffer(2)]],
-                                      uint2 gid                 [[thread_position_in_grid]]) {{
+                                      uint2 gid                 [[thread_position_in_grid]]) {
             uint W = P->width, H = P->height;
             if (gid.x >= W || gid.y >= H) return;
             uint x = gid.x, y = gid.y;
@@ -1060,20 +1061,20 @@ class MetallicDemo:
             float2 v = vel_in[idx(x,y,W)];
             v -= 0.5f * float2(pR - pL, pT - pB);
             vel_out[idx(x,y,W)] = v;
-        }}
+        }
 
         kernel void advect_scalar(const device Params* P        [[buffer(3)]],
                                   const device float* s_in      [[buffer(0)]],
                                   const device float2* vel      [[buffer(1)]],
                                   device float* s_out           [[buffer(2)]],
-                                  uint2 gid                     [[thread_position_in_grid]]) {{
+                                  uint2 gid                     [[thread_position_in_grid]]) {
             uint W = P->width, H = P->height;
             if (gid.x >= W || gid.y >= H) return;
             float2 v = vel[idx(gid.x, gid.y, W)];
             float x = (float)gid.x - P->dt * v.x;
             float y = (float)gid.y - P->dt * v.y;
             s_out[idx(gid.x, gid.y, W)] = sample_s(s_in, x, y, W, H);
-        }}
+        }
         """
 
         lib = device.make_library(source)
@@ -1259,7 +1260,7 @@ class MetallicDemo:
         self.print("Available Metal Devices")
         self.print("=" * 30)
 
-        devices = pymetallic.Device.get_all_devices()
+        devices = Device.get_all_devices()
         for i, device in enumerate(devices):
             self.print(f"Device {i}: {device.name}")
             self.print(
@@ -1267,7 +1268,7 @@ class MetallicDemo:
             )
 
         self.print(
-            f"\nUsing default device: {pymetallic.Device.get_default_device().name}"
+            f"\nUsing default device: {Device.get_default_device().name}"
         )
         self.print()
 
@@ -1294,7 +1295,7 @@ class MetallicDemo:
             invalid_shader = "This is not valid Metal code!"
             library = device.make_library(invalid_shader)
             self.print("  ❌ Should have failed!")
-        except pymetallic.MetalError as e:
+        except MetalError:
             self.print("  ✅ Correctly caught compilation error")
 
         # Test non-existent function
@@ -1306,9 +1307,9 @@ class MetallicDemo:
             kernel void test_function(device float* data [[buffer(0)]]) {}
             """
             library = device.make_library(valid_shader)
-            function = library.make_function("nonexistent_function")
+            library.make_function("nonexistent_function")
             self.print("  ❌ Should have failed!")
-        except pymetallic.MetalError as e:
+        except MetalError:
             self.print("  ✅ Correctly caught function not found error")
 
     def get_demos(self):
@@ -1355,7 +1356,7 @@ class MetalMatrixOperations:
         shader_source = """
         #include <metal_stdlib>
         using namespace metal;
-        
+
         // Matrix multiplication kernel
         kernel void matrix_multiply(device const float* A [[buffer(0)]],
                                   device const float* B [[buffer(1)]],
@@ -1366,16 +1367,16 @@ class MetalMatrixOperations:
                                   uint2 gid [[thread_position_in_grid]]) {
             uint row = gid.y;
             uint col = gid.x;
-            
+
             if (row >= M || col >= N) return;
-            
+
             float sum = 0.0;
             for (uint k = 0; k < K; k++) {
                 sum += A[row * K + k] * B[k * N + col];
             }
             C[row * N + col] = sum;
         }
-        
+
         // Vector operations
         kernel void vector_add(device const float* a [[buffer(0)]],
                              device const float* b [[buffer(1)]],
@@ -1383,36 +1384,36 @@ class MetalMatrixOperations:
                              uint index [[thread_position_in_grid]]) {
             result[index] = a[index] + b[index];
         }
-        
+
         kernel void vector_multiply(device const float* a [[buffer(0)]],
                                   device const float* b [[buffer(1)]],
                                   device float* result [[buffer(2)]],
                                   uint index [[thread_position_in_grid]]) {
             result[index] = a[index] * b[index];
         }
-        
+
         kernel void vector_scale(device const float* input [[buffer(0)]],
                                device float* output [[buffer(1)]],
                                constant float& scale [[buffer(2)]],
                                uint index [[thread_position_in_grid]]) {
             output[index] = input[index] * scale;
         }
-        
+
         // Reduction operations
         kernel void reduce_sum(device const float* input [[buffer(0)]],
                              device float* output [[buffer(1)]],
                              constant uint& n [[buffer(2)]],
                              uint index [[thread_position_in_grid]],
                              uint threads_per_group [[threads_per_threadgroup]]) {
-            
+
             threadgroup float shared_data[256];
             uint tid = index % threads_per_group;
             uint gid = index;
-            
+
             // Load data into shared memory
             shared_data[tid] = (gid < n) ? input[gid] : 0.0;
             threadgroup_barrier(mem_flags::mem_threadgroup);
-            
+
             // Reduction in shared memory
             for (uint s = threads_per_group / 2; s > 0; s >>= 1) {
                 if (tid < s) {
@@ -1420,29 +1421,29 @@ class MetalMatrixOperations:
                 }
                 threadgroup_barrier(mem_flags::mem_threadgroup);
             }
-            
+
             // Write result for this block
             if (tid == 0) {
                 output[index / threads_per_group] = shared_data[0];
             }
         }
-        
+
         // Image processing kernels
         kernel void gaussian_blur_3x3(texture2d<float, access::read> inputTexture [[texture(0)]],
                                      texture2d<float, access::write> outputTexture [[texture(1)]],
                                      uint2 gid [[thread_position_in_grid]]) {
-            
+
             if (gid.x >= inputTexture.get_width() || gid.y >= inputTexture.get_height()) {
                 return;
             }
-            
+
             // 3x3 Gaussian kernel
             const float gaussian_kernel[9] = {
                 1.0/16.0, 2.0/16.0, 1.0/16.0,
                 2.0/16.0, 4.0/16.0, 2.0/16.0,
                 1.0/16.0, 2.0/16.0, 1.0/16.0
             };
-            
+
             float4 color = float4(0.0);
             for (int dy = -1; dy <= 1; dy++) {
                 for (int dx = -1; dx <= 1; dx++) {
@@ -1451,7 +1452,7 @@ class MetalMatrixOperations:
                     color += inputTexture.read(coord) * gaussian_kernel[(dy + 1) * 3 + (dx + 1)];
                 }
             }
-            
+
             outputTexture.write(color, gid);
         }
 
@@ -1519,7 +1520,7 @@ class MetalMatrixOperations:
         buffer_C = device.make_buffer(M * N * 4)  # float32 = 4 bytes
 
         # Create parameter buffers for matrix dimensions
-        dims = np.array([M, N, K], dtype=np.uint32)
+        np.array([M, N, K], dtype=np.uint32)
         buffer_M = device.make_buffer_from_numpy(np.array([M], dtype=np.uint32))
         buffer_N = device.make_buffer_from_numpy(np.array([N], dtype=np.uint32))
         buffer_K = device.make_buffer_from_numpy(np.array([K], dtype=np.uint32))
@@ -1671,7 +1672,7 @@ def run_comprehensive_example():
         C_numpy = np.dot(A, B)
 
         print(f"Matrix shapes: A{A.shape} × B{B.shape} = C{C_metal.shape}")
-        print(f"Metal computation time: {metal_time*1000:.2f}ms")
+        print(f"Metal computation time: {metal_time * 1000:.2f}ms")
         print(f"Results match NumPy: {np.allclose(C_metal, C_numpy, rtol=1e-4)}")
 
         print("\n2. Vector Operations Example")
@@ -1739,7 +1740,7 @@ def run_comprehensive_example():
             f"Gaussian blur correctness: {np.allclose(blurred_metal, blurred_cpu, rtol=1e-5)}"
         )
         print(
-            f"Performance speedup: {speedup:.2f}x numpy={np_elapsed*1000:.2f}ms metal={mtl_elapsed*1000:.2f}ms"
+            f"Performance speedup: {speedup:.2f}x numpy={np_elapsed * 1000:.2f}ms metal={mtl_elapsed * 1000:.2f}ms"
         )
 
         print("\nAll examples completed successfully!")
