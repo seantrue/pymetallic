@@ -232,14 +232,39 @@ Potential areas for continued AI contribution:
 - API expansion and refinement
 - Integration with other Metal features (textures, compute shaders)
 
+### 5. Wheel Packaging Fix (2025-09-30)
+
+**Problem Identified:**
+
+The v0.2.2 wheel uploaded to PyPI was missing the dylib file, causing runtime failures:
+```
+OSError: dlopen(libpymetallic.dylib, 0x0006): tried: 'libpymetallic.dylib' (no such file)
+```
+
+**Investigation:**
+- Local wheel built with `uv build` included dylib (200KB)
+- PyPI wheel v0.2.2 missing dylib (only 29KB)
+- `pyproject.toml` had `artifacts = ["*.dylib"]` configuration
+- Configuration was correct but wheel had been built incorrectly
+
+**Solution:**
+- Rebuilt wheel with proper inclusion of `src/pymetallic/libpymetallic.dylib`
+- Verified dylib presence: 83,888 bytes at `pymetallic/libpymetallic.dylib`
+- Tested in isolated environment with fresh install
+- Smoke test passed: ✅ No smoke seen!
+
+**Version Bump:** 0.2.2 → 0.2.3
+
+**Files Modified:**
+- `pyproject.toml` (version bump)
+- Wheel rebuild with corrected packaging
+
 ---
 
-**Last Updated:** 2025-09-25 (Session completed)
+**Last Updated:** 2025-09-30 (v0.2.3 release)
 
 **AI Assistant:** Claude Code (Sonnet 4.5)
 
-**Session Context:** Thread safety fixes, memory management, weak reference implementation
+**Session Context:** Wheel packaging fix, dylib inclusion verification
 
-**Commit:** 91ac2f6 (merged to master)
-
-**Status:** ✅ Production-ready with comprehensive fixes
+**Status:** ✅ Ready for PyPI upload with working dylib
