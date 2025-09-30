@@ -3,7 +3,7 @@
 
 [project]
 name = "pymetallic"
-version = "0.1.2"
+version = "0.2.1"
 description = "Python bindings for Apple Metal using swift-cffi"
 readme = "README.md"
 authors = [
@@ -11,7 +11,7 @@ authors = [
 ]
 license = { text = "MIT" }
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS :: MacOS X",
@@ -107,9 +107,7 @@ dev-dependencies = [
 # so either structure is packaged correctly without setuptools.
 artifacts = ["*.dylib"]
 exclude = ["*.gif"]
-include = [
-    "pymetallic"
-]
+packages = ["src/pymetallic"]
 
 [tool.ruff]
 line-length = 88
@@ -179,3 +177,9 @@ exclude_lines = [
 
 [tool.cibuildwheel]
 before-all = "uname -a"
+
+[tool.twine]
+repository = "pypi"
+sign = false
+skip-existing = false
+verify-ssl = true
