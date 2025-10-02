@@ -82,8 +82,88 @@ def main():
         print("✅ Vector addition completed successfully!")
     else:
         print("❌ Vector addition failed - results don't match expected values")
+        return False
 
-    return max_error < 1e-6
+    # Test scalar operations
+    print("\n" + "=" * 40)
+    print("Testing Scalar Operations")
+    print("=" * 40)
+
+    # Test scalar add
+    test_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    scalar_add_value = 10.0
+    expected_add = test_data + scalar_add_value
+
+    buffer_test = pymetallic.Buffer.from_numpy(device, test_data.copy())
+    pymetallic.scalar_add(device, buffer_test, scalar_add_value)
+    result_add = buffer_test.to_numpy(np.float32, test_data.shape)
+
+    add_error = np.max(np.abs(result_add - expected_add))
+    print(f"Scalar Add Test: {test_data[:3]} + {scalar_add_value} = {result_add[:3]}")
+    print(f"  Max error: {add_error:.10f}")
+
+    if add_error < 1e-6:
+        print("  ✅ Scalar add completed successfully!")
+    else:
+        print("  ❌ Scalar add failed - results don't match expected values")
+        return False
+
+    # Test scalar multiply
+    test_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    scalar_mult_value = 3.0
+    expected_mult = test_data * scalar_mult_value
+
+    buffer_test = pymetallic.Buffer.from_numpy(device, test_data.copy())
+    pymetallic.scalar_multiply(device, buffer_test, scalar_mult_value)
+    result_mult = buffer_test.to_numpy(np.float32, test_data.shape)
+
+    mult_error = np.max(np.abs(result_mult - expected_mult))
+    print(f"\nScalar Multiply Test: {test_data[:3]} * {scalar_mult_value} = {result_mult[:3]}")
+    print(f"  Max error: {mult_error:.10f}")
+
+    if mult_error < 1e-6:
+        print("  ✅ Scalar multiply completed successfully!")
+    else:
+        print("  ❌ Scalar multiply failed - results don't match expected values")
+        return False
+
+    # Test with larger arrays
+    print("\n" + "=" * 40)
+    print("Testing Scalar Operations on Large Arrays")
+    print("=" * 40)
+
+    large_size = 10000
+    large_data = np.random.random(large_size).astype(np.float32)
+
+    # Test add
+    buffer_large = pymetallic.Buffer.from_numpy(device, large_data.copy())
+    pymetallic.scalar_add(device, buffer_large, 5.0)
+    result_large_add = buffer_large.to_numpy(np.float32)
+    expected_large_add = large_data + 5.0
+    large_add_error = np.max(np.abs(result_large_add - expected_large_add))
+
+    print(f"Large array ({large_size} elements) scalar add max error: {large_add_error:.10f}")
+
+    # Test multiply
+    buffer_large = pymetallic.Buffer.from_numpy(device, large_data.copy())
+    pymetallic.scalar_multiply(device, buffer_large, 2.5)
+    result_large_mult = buffer_large.to_numpy(np.float32)
+    expected_large_mult = large_data * 2.5
+    large_mult_error = np.max(np.abs(result_large_mult - expected_large_mult))
+
+    print(f"Large array ({large_size} elements) scalar multiply max error: {large_mult_error:.10f}")
+
+    if large_add_error < 1e-5 and large_mult_error < 1e-5:
+        print("✅ All scalar operations on large arrays completed successfully!")
+    else:
+        print("❌ Scalar operations on large arrays failed")
+        return False
+
+    print("\n" + "=" * 40)
+    print("🎉 All tests passed successfully!")
+    print("=" * 40)
+
+    return True
 
 
 if __name__ == "__main__":

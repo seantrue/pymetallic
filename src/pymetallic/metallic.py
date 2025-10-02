@@ -13,6 +13,9 @@ from typing import Any
 import numpy as np
 from numpy.typing import DTypeLike
 
+# Import kernel sources from external files
+from .kernels import HELPER_KERNELS
+
 
 # Public error type
 class MetalError(Exception):
@@ -680,18 +683,11 @@ class ComputeCommandEncoder:
         self.command_buffer.wait_until_completed()
 
 
-# Tiny fill kernel compiled once per process
-_FILL_SRC = r"""
-#include <metal_stdlib>
-using namespace metal;
-struct FillParams { uint n; uint32_t value; };
+# Helper kernels loaded from external files
+_HELPER_KERNELS_SRC = HELPER_KERNELS
 
-kernel void fill_u32(device uint32_t* data [[buffer(0)]],
-                     constant FillParams& P [[buffer(1)]],
-                     uint gid [[thread_position_in_grid]]) {
-    if (gid < P.n) { data[gid] = P.value; }
-}
-"""
+# Legacy reference for backward compatibility
+_FILL_SRC = _HELPER_KERNELS_SRC
 
 
 def fill_u32(device: Device, buffer: Buffer, value: int, count_u32: int | None = None):
@@ -730,6 +726,60 @@ def read_scalar(
     element = 0 if i is None else i
     assert 0 <= element < len(arr)
     return arr[element]
+
+
+def scalar_add(device: Device, buffer: Buffer, scalar: float, count: int | None = None):
+    """Add a scalar value to all elements in a float32 buffer."""
+    lib = device.make_library(_HELPER_KERNELS_SRC)
+    fn = lib.make_function("scalar_add_f32")
+    pso = device.make_compute_pipeline_state(fn)
+
+    if count is None:
+        count = buffer.size // 4  # float32 is 4 bytes
+
+    # Create buffers for scalar and count
+    scalar_buffer = device.make_buffer_from_numpy(np.array([scalar], dtype=np.float32))
+    count_buffer = device.make_buffer_from_numpy(np.array([count], dtype=np.uint32))
+
+    enc = device.command_encoder
+    enc.set_compute_pipeline_state(pso)
+    enc.set_buffer(buffer, 0, 0)
+    enc.set_buffer(scalar_buffer, 0, 1)
+    enc.set_buffer(count_buffer, 0, 2)
+
+    grid = (int(count), 1, 1)
+    tgs = (min(256, int(count) if count > 0 else 1), 1, 1)
+    enc.dispatch_threads(grid, tgs)
+    enc.end_encoding()
+    enc.commit()
+    enc.wait_until_completed()
+
+
+def scalar_multiply(device: Device, buffer: Buffer, scalar: float, count: int | None = None):
+    """Multiply all elements in a float32 buffer by a scalar value."""
+    lib = device.make_library(_HELPER_KERNELS_SRC)
+    fn = lib.make_function("scalar_multiply_f32")
+    pso = device.make_compute_pipeline_state(fn)
+
+    if count is None:
+        count = buffer.size // 4  # float32 is 4 bytes
+
+    # Create buffers for scalar and count
+    scalar_buffer = device.make_buffer_from_numpy(np.array([scalar], dtype=np.float32))
+    count_buffer = device.make_buffer_from_numpy(np.array([count], dtype=np.uint32))
+
+    enc = device.command_encoder
+    enc.set_compute_pipeline_state(pso)
+    enc.set_buffer(buffer, 0, 0)
+    enc.set_buffer(scalar_buffer, 0, 1)
+    enc.set_buffer(count_buffer, 0, 2)
+
+    grid = (int(count), 1, 1)
+    tgs = (min(256, int(count) if count > 0 else 1), 1, 1)
+    enc.dispatch_threads(grid, tgs)
+    enc.end_encoding()
+    enc.commit()
+    enc.wait_until_completed()
 
 
 def run_simple_compute_example():

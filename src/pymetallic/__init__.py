@@ -17,6 +17,8 @@ from .metallic import (
     Library,
     MetalError,
     run_simple_compute_example,
+    scalar_add,
+    scalar_multiply,
 )
 
 __all__ = [
@@ -31,6 +33,8 @@ __all__ = [
     "ComputeCommandEncoder",
     "Kernel",
     "run_simple_compute_example",
+    "scalar_add",
+    "scalar_multiply",
 ]
 
 if __name__ == "__main__":
