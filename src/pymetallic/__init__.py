@@ -10,16 +10,24 @@ from .metallic import (
     CommandBuffer,
     CommandQueue,
     ComputeCommandEncoder,
+    BlitCommandEncoder,
     ComputePipelineState,
     Device,
     Function,
     Kernel,
     Library,
     MetalError,
+    async_buffer_from_numpy,
     run_simple_compute_example,
     scalar_add,
     scalar_multiply,
 )
+
+
+def get_default_device() -> Device:
+    """Get the default Metal device."""
+    return Device.get_default_device()
+
 
 __all__ = [
     "MetalError",
@@ -31,7 +39,10 @@ __all__ = [
     "ComputePipelineState",
     "CommandBuffer",
     "ComputeCommandEncoder",
+    "BlitCommandEncoder",
     "Kernel",
+    "async_buffer_from_numpy",
+    "get_default_device",
     "run_simple_compute_example",
     "scalar_add",
     "scalar_multiply",

@@ -126,11 +126,28 @@ def _setup_function_signatures(lib: ctypes.CDLL) -> None:
     lib.metal_compute_command_encoder_end_encoding.argtypes = [c_void_p]
     lib.metal_compute_command_encoder_end_encoding.restype = None
 
+    # Blit encoders
+    lib.metal_command_buffer_make_blit_command_encoder.argtypes = [c_void_p]
+    lib.metal_command_buffer_make_blit_command_encoder.restype = c_void_p
+    lib.metal_blit_command_encoder_copy_buffer.argtypes = [
+        c_void_p,
+        c_void_p,
+        c_uint64,
+        c_void_p,
+        c_uint64,
+        c_uint64,
+    ]
+    lib.metal_blit_command_encoder_copy_buffer.restype = None
+    lib.metal_blit_command_encoder_end_encoding.argtypes = [c_void_p]
+    lib.metal_blit_command_encoder_end_encoding.restype = None
+
     # Command buffer exec
     lib.metal_command_buffer_commit.argtypes = [c_void_p]
     lib.metal_command_buffer_commit.restype = None
     lib.metal_command_buffer_wait_until_completed.argtypes = [c_void_p]
     lib.metal_command_buffer_wait_until_completed.restype = None
+    lib.metal_command_buffer_get_status.argtypes = [c_void_p]
+    lib.metal_command_buffer_get_status.restype = c_int32
 
     # Resource cleanup functions (to be implemented in C library)
     # These may not exist yet, so set them up conditionally
@@ -141,7 +158,8 @@ def _setup_function_signatures(lib: ctypes.CDLL) -> None:
         'metal_compute_pipeline_state_release',
         'metal_command_queue_release',
         'metal_command_buffer_release',
-        'metal_compute_command_encoder_release'
+        'metal_compute_command_encoder_release',
+        'metal_blit_command_encoder_release'
     ]
 
     for func_name in cleanup_functions:
@@ -278,6 +296,21 @@ class _MetalResourceManager:
                     pass
 
         weakref.finalize(python_obj, cleanup_encoder)
+
+    def register_blit_encoder(self, encoder_ptr: c_void_p, python_obj) -> None:
+        """Register a blit command encoder for cleanup when python_obj is deleted."""
+        def cleanup_blit_encoder():
+            with self._lock:
+                self._cleanup_attempts += 1
+                try:
+                    lib = _get_metal_lib()
+                    if hasattr(lib, 'metal_blit_command_encoder_release'):
+                        lib.metal_blit_command_encoder_release(encoder_ptr)
+                        self._cleanup_count += 1
+                except Exception:
+                    pass
+
+        weakref.finalize(python_obj, cleanup_blit_encoder)
 
     def get_cleanup_count(self) -> int:
         """Get the number of resources that have been cleaned up."""
@@ -525,6 +558,115 @@ class Buffer:
         return typed
 
 
+def async_buffer_from_numpy(
+    device: Device,
+    array: np.ndarray,
+    command_buffer: CommandBuffer,
+    storage_mode: int = Buffer.STORAGE_PRIVATE,
+    wait: bool = True,
+) -> Buffer:
+    """
+    Create a Metal buffer from numpy array using async blit transfer.
+
+    This is the async equivalent of Buffer.from_numpy(). Instead of blocking
+    the CPU during the buffer upload, this function:
+    1. Creates a staging buffer in shared memory
+    2. Creates a GPU buffer in private/managed memory
+    3. Enqueues an async blit copy from staging to GPU
+    4. Returns immediately (if wait=False) or waits for completion (if wait=True)
+
+    Args:
+        device: Metal device
+        array: Source numpy array
+        command_buffer: Command buffer for async operations
+        storage_mode: Destination buffer storage mode
+                     (STORAGE_PRIVATE for best GPU performance)
+        wait: If True, wait for transfer to complete before returning
+              If False, return immediately (caller must wait later)
+
+    Returns:
+        Buffer object. If wait=False, data may not be ready yet - caller
+        must ensure command_buffer.wait_until_completed() is called before
+        reading the buffer.
+
+    Example:
+        device = get_default_device()
+        queue = device.make_command_queue()
+        cb = queue.make_command_buffer()
+
+        # Async write - CPU continues immediately
+        buf = async_buffer_from_numpy(device, data, cb, wait=False)
+
+        # Enqueue kernel (automatically waits for blit on GPU)
+        enc = cb.make_compute_command_encoder()
+        enc.set_buffer(buf, 0, 0)
+        # ... kernel execution ...
+        enc.end_encoding()
+
+        cb.commit()
+        cb.wait_until_completed()  # Wait for blit + kernel
+    """
+    lib = _get_metal_lib()
+    arr = np.ascontiguousarray(array)
+
+    # Step 1: Create staging buffer (STORAGE_SHARED - CPU accessible)
+    # This uses synchronous creation but it's fast because it's just allocating
+    # shared memory, not copying to GPU
+    staging_resource_options = Buffer._storage_mode_to_resource_options(
+        Buffer.STORAGE_SHARED
+    )
+    staging_ptr = lib.metal_device_make_buffer_with_bytes(
+        device._device_ptr,
+        arr.ctypes.data_as(c_void_p),
+        c_uint64(arr.nbytes),
+        c_int32(staging_resource_options),
+    )
+    if not staging_ptr:
+        raise MetalError("Failed to create staging buffer")
+
+    staging = Buffer.__new__(Buffer)
+    staging.device = device
+    staging.size = arr.nbytes
+    staging._buffer_ptr = c_void_p(staging_ptr)
+    _resource_manager.register_buffer(staging._buffer_ptr, staging)
+
+    # Step 2: Create destination buffer (GPU-optimized storage)
+    dest_resource_options = Buffer._storage_mode_to_resource_options(storage_mode)
+    dest_ptr = lib.metal_device_make_buffer(
+        device._device_ptr,
+        c_uint64(arr.nbytes),
+        c_int32(dest_resource_options),
+    )
+    if not dest_ptr:
+        raise MetalError("Failed to create destination buffer")
+
+    dest = Buffer.__new__(Buffer)
+    dest.device = device
+    dest.size = arr.nbytes
+    dest._buffer_ptr = c_void_p(dest_ptr)
+    _resource_manager.register_buffer(dest._buffer_ptr, dest)
+
+    # Step 3: Async blit copy from staging to GPU
+    blit_encoder = command_buffer.make_blit_command_encoder()
+    blit_encoder.copy_from_buffer(
+        source_buffer=staging,
+        source_offset=0,
+        dest_buffer=dest,
+        dest_offset=0,
+        size=arr.nbytes,
+    )
+    blit_encoder.end_encoding()
+
+    # Step 4: Commit the command buffer
+    command_buffer.commit()
+
+    # Step 5: Optionally wait for completion
+    if wait:
+        command_buffer.wait_until_completed()
+
+    return dest
+
+
 class Library:
     """Metal shader library wrapper"""
 
@@ -601,6 +743,9 @@ class CommandBuffer:
     def make_compute_command_encoder(self) -> ComputeCommandEncoder:
         return ComputeCommandEncoder(self)
 
+    def make_blit_command_encoder(self) -> BlitCommandEncoder:
+        return BlitCommandEncoder(self)
+
     def commit(self):
         lib = _get_metal_lib()
         lib.metal_command_buffer_commit(self._buffer_ptr)
@@ -608,6 +753,11 @@ class CommandBuffer:
     def wait_until_completed(self):
         lib = _get_metal_lib()
         lib.metal_command_buffer_wait_until_completed(self._buffer_ptr)
+
+    def get_status(self) -> int:
+        """Get command buffer status. Returns: 1=completed, 0=in-progress, -1=error"""
+        lib = _get_metal_lib()
+        return lib.metal_command_buffer_get_status(self._buffer_ptr)
 
     def compute_command_encoder(self):
         return ComputeCommandEncoder(self)
@@ -681,6 +831,47 @@ class ComputeCommandEncoder:
 
     def wait_until_completed(self):
         self.command_buffer.wait_until_completed()
+
+
+class BlitCommandEncoder:
+    """Metal blit command encoder for async buffer transfers"""
+
+    def __init__(self, command_buffer: CommandBuffer):
+        self.command_buffer = command_buffer
+        lib = _get_metal_lib()
+        self._encoder_ptr = c_void_p(
+            lib.metal_command_buffer_make_blit_command_encoder(
+                command_buffer._buffer_ptr
+            )
+        )
+        if not self._encoder_ptr:
+            raise MetalError("Failed to create blit command encoder")
+
+        # Register for cleanup when this Python object is deleted
+        _resource_manager.register_blit_encoder(self._encoder_ptr, self)
+
+    def copy_from_buffer(
+        self,
+        source_buffer: Buffer,
+        source_offset: int,
+        dest_buffer: Buffer,
+        dest_offset: int,
+        size: int,
+    ):
+        """Copy data from source buffer to destination buffer"""
+        lib = _get_metal_lib()
+        lib.metal_blit_command_encoder_copy_buffer(
+            self._encoder_ptr,
+            source_buffer._buffer_ptr,
+            c_uint64(source_offset),
+            dest_buffer._buffer_ptr,
+            c_uint64(dest_offset),
+            c_uint64(size),
+        )
+
+    def end_encoding(self):
+        lib = _get_metal_lib()
+        lib.metal_blit_command_encoder_end_encoding(self._encoder_ptr)
 
 
 # Helper kernels loaded from external files
