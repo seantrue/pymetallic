@@ -220,6 +220,41 @@ public func metal_compute_command_encoder_end_encoding(_ encoderPtr: UnsafeMutab
     encoder.endEncoding()
 }
 
+// MARK: - Blit Command Encoder Functions
+
+@_cdecl("metal_command_buffer_make_blit_command_encoder")
+public func metal_command_buffer_make_blit_command_encoder(_ commandBufferPtr: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer? {
+    let commandBuffer = Unmanaged<MTLCommandBuffer>.fromOpaque(commandBufferPtr).takeUnretainedValue()
+    guard let encoder = commandBuffer.makeBlitCommandEncoder() else {
+        return nil
+    }
+    return Unmanaged.passRetained(encoder).toOpaque()
+}
+
+@_cdecl("metal_blit_command_encoder_copy_buffer")
+public func metal_blit_command_encoder_copy_buffer(_ encoderPtr: UnsafeMutableRawPointer,
+                                                   _ sourceBufferPtr: UnsafeMutableRawPointer,
+                                                   _ sourceOffset: UInt64,
+                                                   _ destBufferPtr: UnsafeMutableRawPointer,
+                                                   _ destOffset: UInt64,
+                                                   _ size: UInt64) {
+    let encoder = Unmanaged<MTLBlitCommandEncoder>.fromOpaque(encoderPtr).takeUnretainedValue()
+    let sourceBuffer = Unmanaged<MTLBuffer>.fromOpaque(sourceBufferPtr).takeUnretainedValue()
+    let destBuffer = Unmanaged<MTLBuffer>.fromOpaque(destBufferPtr).takeUnretainedValue()
+
+    encoder.copy(from: sourceBuffer,
+                 sourceOffset: Int(sourceOffset),
+                 to: destBuffer,
+                 destinationOffset: Int(destOffset),
+                 size: Int(size))
+}
+
+@_cdecl("metal_blit_command_encoder_end_encoding")
+public func metal_blit_command_encoder_end_encoding(_ encoderPtr: UnsafeMutableRawPointer) {
+    let encoder = Unmanaged<MTLBlitCommandEncoder>.fromOpaque(encoderPtr).takeUnretainedValue()
+    encoder.endEncoding()
+}
+
 // MARK: - Command Buffer Execution
 
 @_cdecl("metal_command_buffer_commit")
@@ -232,6 +267,22 @@ public func metal_command_buffer_commit(_ commandBufferPtr: UnsafeMutableRawPoin
 public func metal_command_buffer_wait_until_completed(_ commandBufferPtr: UnsafeMutableRawPointer) {
     let commandBuffer = Unmanaged<MTLCommandBuffer>.fromOpaque(commandBufferPtr).takeUnretainedValue()
     commandBuffer.waitUntilCompleted()
+}
+
+@_cdecl("metal_command_buffer_get_status")
+public func metal_command_buffer_get_status(_ commandBufferPtr: UnsafeMutableRawPointer) -> Int32 {
+    let commandBuffer = Unmanaged<MTLCommandBuffer>.fromOpaque(commandBufferPtr).takeUnretainedValue()
+
+    switch commandBuffer.status {
+    case .completed:
+        return 1
+    case .enqueued, .committed, .scheduled:
+        return 0
+    case .error, .notEnqueued:
+        return -1
+    @unknown default:
+        return -1
+    }
 }
 
 // MARK: - Memory Management Helper Functions
@@ -277,6 +328,11 @@ public func metal_command_buffer_release(_ bufferPtr: UnsafeMutableRawPointer) {
 @_cdecl("metal_compute_command_encoder_release")
 public func metal_compute_command_encoder_release(_ encoderPtr: UnsafeMutableRawPointer) {
     _ = Unmanaged<MTLComputeCommandEncoder>.fromOpaque(encoderPtr).takeRetainedValue()
+}
+
+@_cdecl("metal_blit_command_encoder_release")
+public func metal_blit_command_encoder_release(_ encoderPtr: UnsafeMutableRawPointer) {
+    _ = Unmanaged<MTLBlitCommandEncoder>.fromOpaque(encoderPtr).takeRetainedValue()
 }
 
 // MARK: - Error Handling
