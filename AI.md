@@ -608,6 +608,22 @@ Implementation based on `pymetallic_async/` proof of concept:
 
 **Session Context:** Async buffer writes implementation from proof of concept
 
-**Branch:** asyncwrite
+**Branch:** asyncwrite (merged to master via PR #1)
 
-**Status:** ✅ Implemented and tested, ready for merge
+**Status:** ✅ Merged and released
+
+### Release: v0.3.0 (2025-11-03)
+
+**Version Bump:** 0.2.3 → 0.3.0 (minor version bump for new feature)
+
+**Release Highlights:**
+- Asynchronous buffer uploads via Metal blit encoder
+- 1.5-2x performance improvement for multi-buffer operations
+- Feature parity with OpenCL and CUDA backends
+- Zero breaking changes - purely additive API
+
+**Distribution:**
+- Built with `uv build`
+- Published to PyPI as pymetallic v0.3.0
+- Includes all async write functionality
+- Full test coverage with 4 new async tests
