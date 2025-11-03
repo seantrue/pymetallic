@@ -105,9 +105,10 @@ dev-dependencies = [
 [tool.hatch.build.targets.wheel]
 # Include both a single-module layout (pymetallic.py) and a package layout (pymetallic/)
 # so either structure is packaged correctly without setuptools.
-artifacts = ["*.dylib"]
+artifacts = ["src/pymetallic/*.dylib"]
 exclude = ["*.gif"]
 packages = ["src/pymetallic"]
+only-packages = false
 
 [tool.ruff]
 line-length = 88
