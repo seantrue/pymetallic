@@ -54,8 +54,11 @@ def test_async_buffer_creation():
             data,
             cb,
             storage_mode=pm.Buffer.STORAGE_PRIVATE,
-            wait=True
         )
+
+        # Commit and wait (caller's responsibility)
+        cb.commit()
+        cb.wait_until_completed()
 
         print(f"✓ Async buffer created: size={buffer.size} bytes")
         return True
@@ -88,8 +91,11 @@ def test_async_buffer_correctness():
             data,
             cb,
             storage_mode=pm.Buffer.STORAGE_SHARED,  # Use SHARED for readback
-            wait=True
         )
+
+        # Commit and wait (caller's responsibility)
+        cb.commit()
+        cb.wait_until_completed()
 
         # Read back data
         result = buffer.to_numpy(dtype=np.float32, shape=data.shape)
@@ -112,9 +118,9 @@ def test_async_buffer_correctness():
 
 
 def test_async_no_wait():
-    """Test 4: Async buffer with wait=False"""
+    """Test 4: Async buffer without immediate wait"""
     print("\n" + "="*70)
-    print("Test 4: Async Buffer with wait=False")
+    print("Test 4: Async Buffer Without Immediate Wait")
     print("="*70)
 
     device = pm.get_default_device()
@@ -125,17 +131,17 @@ def test_async_no_wait():
     try:
         cb = queue.make_command_buffer()
 
-        print("Creating buffer with wait=False (non-blocking)...")
+        print("Creating buffer (non-blocking)...")
         buffer = pm.async_buffer_from_numpy(
             device,
             data,
             cb,
             storage_mode=pm.Buffer.STORAGE_PRIVATE,
-            wait=False  # Don't wait - async!
         )
 
-        print("✓ Function returned immediately (buffer may not be ready yet)")
-        print("Waiting for completion now...")
+        print("✓ Function returned immediately (buffer transfer enqueued)")
+        print("Committing and waiting for completion...")
+        cb.commit()
         cb.wait_until_completed()
         print("✓ Command buffer completed successfully")
         return True

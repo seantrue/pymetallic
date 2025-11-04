@@ -264,12 +264,11 @@ print("Computation complete!")
 - `buffer.to_numpy(dtype, shape)` - Convert buffer to NumPy array
 
 ### Async Buffer Transfers (New!)
-PyMetallic now supports asynchronous buffer uploads via Metal's blit encoder, bringing it to feature parity with OpenCL and CUDA backends.
+PyMetallic supports asynchronous buffer uploads via Metal's blit encoder.
 
-- `async_buffer_from_numpy(device, array, command_buffer, storage_mode=STORAGE_PRIVATE, wait=True)` - Create buffer with async GPU transfer
-- Achieves **1.5-2x speedup** for operations with multiple buffer uploads
+- `async_buffer_from_numpy(device, array, command_buffer, storage_mode=STORAGE_PRIVATE)` - Create buffer with async GPU transfer
 - Uses two-step transfer: staging buffer (shared memory) → GPU buffer (private memory)
-- If `wait=False`, CPU returns immediately while GPU transfer continues in background
+- Caller must commit and wait on command buffer (not done automatically)
 
 **Example:**
 ```python
@@ -280,26 +279,25 @@ device = pm.get_default_device()
 queue = device.make_command_queue()
 cb = queue.make_command_buffer()
 
-# Multiple async uploads (CPU doesn't block!)
-data1 = np.random.random(10000).astype(np.float32)
-data2 = np.random.random(10000).astype(np.float32)
+# Async write - enqueues blit transfer
+buf = pm.async_buffer_from_numpy(device, data, cb)
 
-buf1 = pm.async_buffer_from_numpy(device, data1, cb, wait=False)
-buf2 = pm.async_buffer_from_numpy(device, data2, cb, wait=False)
-
-# Enqueue kernel (GPU waits for transfers automatically)
+# Enqueue kernel on same command buffer
 enc = cb.make_compute_command_encoder()
-# ... set pipeline and buffers ...
+enc.set_buffer(buf, 0, 0)
+# ... kernel execution ...
 enc.end_encoding()
 
-# Single wait at end instead of per-buffer
-cb.wait_until_completed()
+# Commit once with all encoders
+cb.commit()
+cb.wait_until_completed()  # Wait for blit + kernel
 ```
 
 **Performance Notes:**
-- Best for: Multiple buffer uploads, large transfers, neural networks, image processing
-- Single buffer: Similar performance to synchronous (slight overhead)
-- Multiple buffers (10+): Up to 2x faster than sequential synchronous uploads
+- ⚠️ **On Apple Silicon unified memory, synchronous transfers may be faster!**
+- Command buffer overhead (~200-300μs) can exceed transfer time (~0.1μs on unified memory)
+- Async transfers are most beneficial on discrete GPUs with separate memory
+- For unified memory systems, use standard `Buffer.from_numpy()` for better performance
 
 ### Compute Pipeline
 - `Library(device, source)` - Compile Metal shader source

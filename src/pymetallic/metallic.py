@@ -563,7 +563,6 @@ def async_buffer_from_numpy(
     array: np.ndarray,
     command_buffer: CommandBuffer,
     storage_mode: int = Buffer.STORAGE_PRIVATE,
-    wait: bool = True,
 ) -> Buffer:
     """
     Create a Metal buffer from numpy array using async blit transfer.
@@ -573,36 +572,40 @@ def async_buffer_from_numpy(
     1. Creates a staging buffer in shared memory
     2. Creates a GPU buffer in private/managed memory
     3. Enqueues an async blit copy from staging to GPU
-    4. Returns immediately (if wait=False) or waits for completion (if wait=True)
+    4. Returns immediately - caller must commit and wait on command buffer
+
+    IMPORTANT: This function does NOT commit the command buffer. The caller
+    is responsible for:
+    - Adding any additional encoders (compute, etc.) to the same command buffer
+    - Calling command_buffer.commit() when ready
+    - Calling command_buffer.wait_until_completed() to ensure completion
 
     Args:
         device: Metal device
         array: Source numpy array
-        command_buffer: Command buffer for async operations
+        command_buffer: Command buffer for async operations (will not be committed)
         storage_mode: Destination buffer storage mode
                      (STORAGE_PRIVATE for best GPU performance)
-        wait: If True, wait for transfer to complete before returning
-              If False, return immediately (caller must wait later)
 
     Returns:
-        Buffer object. If wait=False, data may not be ready yet - caller
-        must ensure command_buffer.wait_until_completed() is called before
-        reading the buffer.
+        Buffer object. Data transfer is enqueued but not yet complete.
+        Caller must commit and wait on the command buffer.
 
     Example:
         device = get_default_device()
         queue = device.make_command_queue()
         cb = queue.make_command_buffer()
 
-        # Async write - CPU continues immediately
-        buf = async_buffer_from_numpy(device, data, cb, wait=False)
+        # Async write - enqueues blit transfer
+        buf = async_buffer_from_numpy(device, data, cb)
 
-        # Enqueue kernel (automatically waits for blit on GPU)
+        # Enqueue kernel on same command buffer
         enc = cb.make_compute_command_encoder()
         enc.set_buffer(buf, 0, 0)
         # ... kernel execution ...
         enc.end_encoding()
 
+        # Commit once with all encoders
         cb.commit()
         cb.wait_until_completed()  # Wait for blit + kernel
     """
@@ -657,13 +660,7 @@ def async_buffer_from_numpy(
     )
     blit_encoder.end_encoding()
 
-    # Step 4: Commit the command buffer
-    command_buffer.commit()
-
-    # Step 5: Optionally wait for completion
-    if wait:
-        command_buffer.wait_until_completed()
-
+    # Note: Caller is responsible for committing and waiting on command buffer
     return dest
 
 
