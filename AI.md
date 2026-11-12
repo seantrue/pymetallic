@@ -1,5 +1,7 @@
 # AI Contributions to PyMetallic
 
+*About AI slop.* Fair enough: a good share of PyMetallic was written by a machine, and so was much of this file. Call it instant ramen. It is fast, it is cheap, it is genuinely edible, and nobody should pretend it simmered on a stove all afternoon. The honest answer isn't a claim about quality. It's the record below: what the maintainer asked for, what the model wrote, what the model got wrong, and which of those mistakes the GPU test suite caught rather than luck. Where AI-written code shipped a defect, it is written down here in the same detail as the wins. Bon appétit, but mind the sodium content.
+
 This document tracks contributions made by AI assistants (Claude Code) versus the human maintainer.
 
 ## Summary Statistics
@@ -627,3 +629,14 @@ Implementation based on `pymetallic_async/` proof of concept:
 - Published to PyPI as pymetallic v0.3.0
 - Includes all async write functionality
 - Full test coverage with 4 new async tests
+
+## Session: 2026-11-11 - BUGS.md started, with B1 (Claude Opus 5.5)
+
+**What the maintainer asked for.** "file both", after the plum coordinator checked pymetallic for memory problems behind yapocis3 #88 (GPU results that vary under multi-process contention).
+
+**What the AI did.**
+- **Found and filed issue #2.** `Buffer.to_numpy()` returns a zero-copy view that doesn't keep its `Buffer` alive, so the view reads freed memory once the `Buffer` is collected. A latent hazard: yapocis3 copies out of the view at once, so this isn't #88's cause. Recorded as B1 in a new `BUGS.md`.
+- **Checked and found sound:** retain/release balance in `SwiftMetalBridge.swift` (`passRetained` paired with `takeRetainedValue`, behind a lock), and command buffers made with `makeCommandBuffer()`, which retains the resources it uses.
+- **This AI.md:** added the missing "About AI slop" note in place.
+- **Size:** ~25 lines of Markdown; no code changed.
+
